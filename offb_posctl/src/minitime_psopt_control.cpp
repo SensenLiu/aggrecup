@@ -3,10 +3,8 @@
 //
 #include "psopt.h"
 #include "ros/ros.h"
-#include "std_msgs/Float32.h"
 #include <chrono>
 #include "iomanip"
-#include <acado/acado_gnuplot.hpp>
 #include <geometry_msgs/Point.h>
 #include <geometry_msgs/Vector3.h>
 #include <geometry_msgs/Quaternion.h>
@@ -21,7 +19,6 @@
 #include <std_msgs/Bool.h>
 #include <std_msgs/Float32.h>
 #include "offb_posctl/controlstate.h"
-//#include <Eigen/Eigen>// This step will generate error about eigen ,the reason is not clear by far
 #include <Eigen/Geometry>
 #include <Eigen/Core>
 #include <thread>
@@ -67,14 +64,12 @@ Eigen::Quaterniond current_quaternion(0,0,0,0);
 bool pose_initialized = false;
 bool vel_initialized = false;
 int posvel_updatesynflag= false;// the variable to make sure the pos and vel used in ocp is synchronized, In reality, we can put pos and vel in one topic to avoid this problem
-USING_NAMESPACE_ACADO
-VariablesGrid state, parameter, control;// used for output result
-returnValue resultofsolve;
+
 int timeconsumption=0;
 float t_end=2;
-int pointnumber=20;// the number is almost always 20. It less, the accuracy won't be enough, if more, the time consumpiton will be too large.
+int pointnumber=10;// the number is almost always 20. It less, the accuracy won't be enough, if more, the time consumpiton will be too large.
 int controlfreq=50;
-int discretizedpointpersecond=(int)pointnumber/t_end;
+
 float px_ini = -3.0;
 float pz_ini = 0.0;
 float vx_ini = -0.1;
@@ -88,6 +83,18 @@ offb_posctl::controlstate controlstate_msg;
 bool currentupdateflag= false;
 FILTER filterDroneVelx(150);
 sensor_msgs::Imu drone_imu;
+
+Alg  algorithm;
+Sol  solution;
+Prob problem;
+double py0=0,pz0=0.5,phi0=0,vy0=0,vz0=0,omega0=0,thrust0=9.8,tau0=0;
+double pyf=2,pzf=2,phif=1.57,vyf=0.2*sin(phif),vzf=-0.2*cos(phif),omegaf=0.0,thrustf=9.8*cos(phif),tauf=0;
+////x1=y,x2=z,x3=phi,x4=vy,x5=vz,x6=omega,x7=thrust,x8=tau//
+
+MatrixXd x  ;
+MatrixXd u  ;
+MatrixXd t  ;
+MatrixXd x_refined  = MatrixXd::Zero(8,500);
 
 adouble endpoint_cost(adouble* initial_states, adouble* final_states,
                       adouble* parameters,adouble& t0, adouble& tf,
@@ -105,8 +112,8 @@ adouble integrand_cost(adouble* states, adouble* controls, adouble* parameters,
 {
     adouble x7 = states[ 6 ];
     adouble x8 = states[ 7 ];
-    adouble udf = controls[ 0 ];
-    adouble udtau = controls[ 1 ];
+//    adouble udf = controls[ 0 ];
+//    adouble udtau = controls[ 1 ];
     return  0.5*x7*x7+0.5*x8*x8;
 //    return 0;
 }
@@ -198,227 +205,69 @@ void events(adouble* e, adouble* initial_states, adouble* final_states,
     e[ 15 ] = x8f;
 }
 
+void linkages( adouble* linkages, adouble* xad, Workspace* workspace)
+{
+    // No linkages as this is a single phase problem
+}
 
 
 void do_process()
 {
-    double x10=0,x20=0.5,x30=0,x40=0,x50=0,x60=0,x70=9.8,x80=0;
-    double x1f=2,x2f=2,x3f=1.57,x4f=0.2*sin(x3f),x5f=-0.2*cos(x3f),x6f=0.0,x7f=x70*cos(x3f),x8f=0;
+    chrono::time_point<chrono::steady_clock> begin_time = chrono::steady_clock::now();
 
-////////////////////////////////////////////////////////////////////////////
-///////////////////  Declare key structures ////////////////////////////////
-////////////////////////////////////////////////////////////////////////////
+    problem.phases(1).bounds.lower.events   	<< py0,  pz0,  phi0,  vy0,  vz0, omega0, thrust0, tau0, pyf, pzf, phif, vyf,vzf,omegaf,thrustf,tauf;
+    problem.phases(1).bounds.upper.events   	<< py0,  pz0,  phi0,  vy0,  vz0, omega0, thrust0, tau0, pyf, pzf, phif, vyf,vzf,omegaf,thrustf,tauf;
 
-    Alg  algorithm;
-    Sol  solution;
-    Prob problem;
+    problem.phases(1).guess.controls = u;
+    problem.phases(1).guess.states = x;
+    problem.phases(1).guess.time = t;
 
-////////////////////////////////////////////////////////////////////////////
-///////////////////  Register problem name  ////////////////////////////////
-////////////////////////////////////////////////////////////////////////////
+    psopt(solution, problem, algorithm);
+    chrono::time_point<chrono::steady_clock> end_time = chrono::steady_clock::now();
+    int timeconsumption = chrono::duration_cast<chrono::milliseconds>(end_time - begin_time).count();
+    cout << "time consume mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm: " << timeconsumption<< endl;
 
-    problem.name        		= "Brachistochrone Problem";
+    if (solution.error_flag) return;
 
-    problem.outfilename                 = "brac1.txt";
-
-////////////////////////////////////////////////////////////////////////////
-////////////  Define problem level constants & do level 1 setup ////////////
-////////////////////////////////////////////////////////////////////////////
-
-    problem.nphases   			= 1;
-    problem.nlinkages                   = 0;
-
-    psopt_level1_setup(problem);
-
-
-/////////////////////////////////////////////////////////////////////////////
-/////////   Define phase related information & do level 2 setup /////////////
-/////////////////////////////////////////////////////////////////////////////
-
-    problem.phases(1).nstates   		= 8;
-    problem.phases(1).ncontrols 		= 2;
-    problem.phases(1).nevents   		= 16;
-    problem.phases(1).npath     		= 0;
-    problem.phases(1).nodes                     << 10;
-//    problem.phases(1).nodes=(RowVectorXi(2)<<7,9).finished();
-    psopt_level2_setup(problem, algorithm);
-
-
-////////////////////////////////////////////////////////////////////////////
-///////////////////  Enter problem bounds information //////////////////////
-////////////////////////////////////////////////////////////////////////////
-
-
-    problem.phases(1).bounds.lower.states   	<<  -1,  0.5,  -1.57, -10, -10,-10,0,-10;
-    problem.phases(1).bounds.upper.states   	<<   3, 10, 1.57,10,10,10,19.6,10;
-
-    problem.phases(1).bounds.lower.controls 	<< -15,-15;
-    problem.phases(1).bounds.upper.controls 	<< 15,15;
-
-    problem.phases(1).bounds.lower.events   	<< x10,  x20,  x30,  x40,  x50,x60,x70,x80,x1f,x2f,x3f,x4f,x5f,x6f,x7f,x8f;
-    problem.phases(1).bounds.upper.events   	<< x10,  x20,  x30,  x40,  x50,x60,x70,x80,x1f,x2f,x3f,x4f,x5f,x6f,x7f,x8f;
-
-
-    problem.phases(1).bounds.lower.StartTime    = 0.0;
-    problem.phases(1).bounds.upper.StartTime    = 0.0;
-
-    problem.phases(1).bounds.lower.EndTime      = 0.0;
-    problem.phases(1).bounds.upper.EndTime      = 10.0;
-
-
-////////////////////////////////////////////////////////////////////////////
-///////////////////  Register problem functions  ///////////////////////////
-////////////////////////////////////////////////////////////////////////////
-
-
-    problem.integrand_cost 	= &integrand_cost;
-    problem.endpoint_cost 	= &endpoint_cost;
-    problem.dae 		= &dae;
-    problem.events 		= &events;
-    problem.linkages		= &linkages;
-
-
-////////////////////////////////////////////////////////////////////////////
-///////////////////  Define & register initial guess ///////////////////////
-////////////////////////////////////////////////////////////////////////////
-
-
-
-    MatrixXd x0(8,9);
-    MatrixXd u0(2,9);
-    MatrixXd t0(1,9);
-
-    x0.row(0) = linspace(0.0,1.0, 9);
-    x0.row(1) = linspace(0.0,1.0, 9);
-    x0.row(2) = linspace(0.0,1.0, 9);
-    x0.row(3) = linspace(0.0,1.0, 9);
-    x0.row(4) = linspace(0.0,1.0, 9);
-    x0.row(5) = linspace(0.0,1.0, 9);
-    x0.row(6) = linspace(0.0,1.0, 9);
-    x0.row(7) = linspace(0.0,1.0, 9);
-
-    u0.row(0) = linspace(0.0,1.0, 9);
-    u0.row(1) = linspace(0.0,1.0, 9);
-
-    t0.row(0) = linspace(0.0,2.0, 9);
-
-    MatrixXd x 		= x0;
-    MatrixXd u 		= u0;
-    MatrixXd t 		= t0;
-
-
-////////////////////////////////////////////////////////////////////////////
-///////////////////  Enter algorithm options  //////////////////////////////
-////////////////////////////////////////////////////////////////////////////
-
-
-    algorithm.nlp_method                  = "IPOPT";
-    algorithm.scaling                     = "automatic";
-    algorithm.derivatives                 = "automatic";
-    algorithm.nlp_iter_max                = 1000;
-    algorithm.nlp_tolerance               = 1.e-3;
-//    algorithm.hessian			  = "exact";
-    algorithm.collocation_method          = "trapezoidal";
-//    algorithm.mesh_refinement             = "automatic";
-    algorithm.print_level                 =0;
-//    algorithm.ode_tolerance               =1.e-3;
-
-    while(1)
-    {
-
-        x20=x20+0.01;
-
-        problem.phases(1).bounds.lower.events   	<< x10,  x20,  x30,  x40,  x50,x60,x70,x80,x1f,x2f,x3f,x4f,x5f,x6f,x7f,x8f;
-        problem.phases(1).bounds.upper.events   	<< x10,  x20,  x30,  x40,  x50,x60,x70,x80,x1f,x2f,x3f,x4f,x5f,x6f,x7f,x8f;
-
-        problem.phases(1).guess.controls = u;
-        problem.phases(1).guess.states = x;
-        problem.phases(1).guess.time = t;
-//        psopt_level2_setup(problem, algorithm);
-////////////////////////////////////////////////////////////////////////////
-///////////////////  Now call PSOPT to solve the problem   /////////////////
-////////////////////////////////////////////////////////////////////////////
-        chrono::time_point<chrono::steady_clock> begin_time = chrono::steady_clock::now();
-        psopt(solution, problem, algorithm);
-        chrono::time_point<chrono::steady_clock> end_time = chrono::steady_clock::now();
-        int timeconsumption = chrono::duration_cast<chrono::milliseconds>(end_time - begin_time).count();
-        cout << "time consume mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm: " << timeconsumption<< endl;
-        if (solution.error_flag) exit(0);
-
-////////////////////////////////////////////////////////////////////////////
-///////////  Extract relevant variables from solution structure   //////////
-////////////////////////////////////////////////////////////////////////////
-
-        x = solution.get_states_in_phase(1);
-        u = solution.get_controls_in_phase(1);
-        t = solution.get_time_in_phase(1);
-//    MatrixXd H           = solution.get_dual_hamiltonian_in_phase(1);
-//    MatrixXd lambda      = solution.get_dual_costates_in_phase(1);
-
-////////////////////////////////////////////////////////////////////////////
-///////////  Save solution data to files if desired ////////////////////////
-////////////////////////////////////////////////////////////////////////////
-
-//    Save(x,"x.dat");
-//    Save(u,"u.dat");
-//    Save(t,"t.dat");
-//    Save(lambda,"p.dat");
-        cout << x << endl;
-        cout<< t<<endl;
-    }
+    x = solution.get_states_in_phase(1);
+    u = solution.get_controls_in_phase(1);
+    t = solution.get_time_in_phase(1);
 
 }
 
-/**match the current state with the newest states solved by OCP, and the time of the nearest state will be the first used point
-// in the newest solved input. the return value is the matched index
-*/
-double tempStateX=0.0,tempStateZ=0.0,tempStateVX=0.0,tempStateVZ=0.0;
-int StateMatch()
+void interpolation()
 {
-    int k1=1,k2=1,k3=1,k4=1,lefnodeindex=0,rightnodeindex=0,controlcounter=0,mincounter=0;
-    float minStateDistance=0.0,currentStateDistance=0.0,stateX=0.0,stateZ=0.0,stateVX=0.0,stateVZ=0.0;
-    for(;rightnodeindex<controlstate_msg.stateXarray.size();)
+    int interpolationpoints=floor(t(0,pointnumber-1)*controlfreq)+1;
+    int leftnode=0,rightnode=1;
+    double leftweight=0,rightweight=0;
+    for(int i=0;i<interpolationpoints;i++)
     {
-        lefnodeindex=floor(controlcounter*discretizedpointpersecond/controlfreq);
-        rightnodeindex=lefnodeindex+1;
-        if(rightnodeindex<controlstate_msg.stateXarray.size())
+        if(t(0,leftnode)<=(double)i/controlfreq && (double)i/controlfreq<=t(0,rightnode))
         {
-            //interpolition
-            stateX= (rightnodeindex-(double)controlcounter*discretizedpointpersecond/controlfreq)*controlstate_msg.stateXarray[lefnodeindex]
-                                +((double)controlcounter*discretizedpointpersecond/controlfreq-lefnodeindex)*controlstate_msg.stateXarray[rightnodeindex];
-
-            stateZ =(rightnodeindex-(double)controlcounter*discretizedpointpersecond/controlfreq)*controlstate_msg.stateZarray[lefnodeindex]
-                               +((double)controlcounter*discretizedpointpersecond/controlfreq-lefnodeindex)*controlstate_msg.stateZarray[rightnodeindex];
-
-            stateVX= (rightnodeindex-(double)controlcounter*discretizedpointpersecond/controlfreq)*controlstate_msg.stateVXarray[lefnodeindex]
-                    +((double)controlcounter*discretizedpointpersecond/controlfreq-lefnodeindex)*controlstate_msg.stateVXarray[rightnodeindex];
-
-            stateVZ =(rightnodeindex-(double)controlcounter*discretizedpointpersecond/controlfreq)*controlstate_msg.stateVZarray[lefnodeindex]
-                    +((double)controlcounter*discretizedpointpersecond/controlfreq-lefnodeindex)*controlstate_msg.stateVZarray[rightnodeindex];
-            currentStateDistance=k1*pow(stateX-px_ini,2)+k2*pow(stateZ-pz_ini,2)+k3*pow(stateVX-vx_ini,2)+k4*pow(stateVZ-vx_ini,2);
-            if(minStateDistance==0)
+            leftweight=(t(0,rightnode)-(double)i/controlfreq)/(t(0,rightnode)-t(0,leftnode));
+            rightweight=((double)i/controlfreq-t(0,leftnode))/(t(0,rightnode)-t(0,leftnode));
+            for(int j=0;j<8;j++)
             {
-                minStateDistance=currentStateDistance;
-                controlcounter=0;
-            } else{
-                if(minStateDistance>currentStateDistance)
-                {
-                    minStateDistance=currentStateDistance;
-                    mincounter=controlcounter;
-                    tempStateX=stateX;
-                    tempStateZ=stateZ;
-                    tempStateVX=stateVX;
-                    tempStateVZ=stateVZ;
-                }
+                x_refined(j,i)=x(j,leftnode)*leftweight+x(j,rightnode)*rightweight;
+            }
+        } else if((double)i/controlfreq>(t.row(0))(rightnode))
+        {
+            while((double)i/controlfreq>(t.row(0))(rightnode))
+            {
+                leftnode=rightnode;
+                rightnode++;
+            }
+            leftweight=(t(0,rightnode)-(double)i/controlfreq)/(t(0,rightnode)-t(0,leftnode));
+            rightweight=((double)i/controlfreq-t(0,leftnode))/(t(0,rightnode)-t(0,leftnode));
+            for(int j=0;j<8;j++)
+            {
+                x_refined(j,i)=x(j,leftnode)*leftweight+x(j,rightnode)*rightweight;
             }
         }
-        controlcounter++;
     }
-//    std::cout<<"matchedcoutner:---"<<mincounter<<" X:"<<tempStateX<<" Z:"<<tempStateZ<<" VX:"<<tempStateVX<<" VZ:"<<tempStateVZ<<endl;
-    return mincounter;
 }
 
-
+// rostopic subscribe
 void state_cb(const mavros_msgs::State::ConstPtr &msg){
     current_state = *msg;
 }
@@ -486,55 +335,136 @@ void relative_postwist_cb(const nav_msgs::Odometry::ConstPtr &msg)
 }
 int main( int argc, char ** argv)
 {
-    ros::init(argc, argv, "acado_lag_control");
+    ros::init(argc, argv, "minimizetime_control");
     ros::NodeHandle nh;
     ros::Rate rate(100);// it is the rate to check and process callback functions. the high rate is to avoid the latency to accept the pos and vel
-//    //Gazebo 仿真数据
+
     ros::Subscriber drone_imu_sub=nh.subscribe<sensor_msgs::Imu>("/mavros/imu/data",10,droneImu_cb);
     ros::Subscriber plane_rpy_sub = nh.subscribe<geometry_msgs::Vector3>("drone/current_rpy",10,dronerpy_cb);
     ros::Subscriber car_position_sub = nh.subscribe<nav_msgs::Odometry>("current_relative_postwist",10,relative_postwist_cb); //车的pos+twist
     ros::Subscriber plane_velocity_sub = nh.subscribe<geometry_msgs::TwistStamped>("mavros/local_position/velocity_local", 10, plane_vel_cb); //twist
 
-    // 【发布】飞机姿态/拉力信息 坐标系:NED系
+
     ros::Publisher controlstate_pub=nh.advertise<offb_posctl::controlstate>("ocp/control_state",10);
     ros::Publisher planeVel_pub=nh.advertise<geometry_msgs::Vector3>("filteredPlaneVel",10);
-//  -------------------------------------
+
+/////////////////////////////////// construct the ocp problem
+    problem.name        		        = "minimize time Problem";
+    problem.outfilename                 = "aggrecup.txt";
+    problem.nphases   			        = 1;
+    problem.nlinkages                   = 0;
+    psopt_level1_setup(problem);
+
+    problem.phases(1).nstates   		= 8;
+    problem.phases(1).ncontrols 		= 2;
+    problem.phases(1).nevents   		= 16;
+    problem.phases(1).npath     		= 0;
+    problem.phases(1).nodes                     << pointnumber;
+//    problem.phases(1).nodes=(RowVectorXi(2)<<7,9).finished();
+    psopt_level2_setup(problem, algorithm);
+
+
+    problem.phases(1).bounds.lower.states   	<<  -1,  0.5,  -1.57, -10, -10,-10,  0,   -10;
+    problem.phases(1).bounds.upper.states   	<<   3,  10,    1.57,  10,  10, 10,  19.6, 10;
+
+    problem.phases(1).bounds.lower.controls 	<< -15, -15;
+    problem.phases(1).bounds.upper.controls 	<<  15,  15;
+
+
+    problem.phases(1).bounds.lower.StartTime    = 0.0;
+    problem.phases(1).bounds.upper.StartTime    = 0.0;
+
+    problem.phases(1).bounds.lower.EndTime      = 0.0;
+    problem.phases(1).bounds.upper.EndTime      = 10.0;
+
+
+
+    problem.integrand_cost 	= &integrand_cost;
+    problem.endpoint_cost 	= &endpoint_cost;
+    problem.dae 		    = &dae;
+    problem.events 		    = &events;
+    problem.linkages		= &linkages;
+
+    MatrixXd x0(8,pointnumber-1) ;
+    MatrixXd u0(2,pointnumber-1) ;
+    MatrixXd t0(1,pointnumber-1) ;
+
+    x0.row(0) = linspace(0.0,1.0, pointnumber-1);
+    x0.row(1) = linspace(0.0,1.0, pointnumber-1);
+    x0.row(2) = linspace(0.0,1.0, pointnumber-1);
+    x0.row(3) = linspace(0.0,1.0, pointnumber-1);
+    x0.row(4) = linspace(0.0,1.0, pointnumber-1);
+    x0.row(5) = linspace(0.0,1.0, pointnumber-1);
+    x0.row(6) = linspace(0.0,1.0, pointnumber-1);
+    x0.row(7) = linspace(0.0,1.0, pointnumber-1);
+
+    u0.row(0) = linspace(0.0,1.0, pointnumber-1);
+    u0.row(1) = linspace(0.0,1.0, pointnumber-1);
+
+    t0.row(0) = linspace(0.0,2.0, pointnumber-1);
+
+    algorithm.nlp_method                  = "IPOPT";
+    algorithm.scaling                     = "automatic";
+    algorithm.derivatives                 = "automatic";
+    algorithm.nlp_iter_max                = 1000;
+    algorithm.nlp_tolerance               = 1.e-3;
+    algorithm.collocation_method          = "trapezoidal";
+    algorithm.print_level                 =0;
+/////////////////////////////////// construct the ocp problem
+
+    problem.phases(1).bounds.lower.events   	<< py0,  pz0,  phi0,  vy0,  vz0, omega0, thrust0, tau0, pyf, pzf, phif, vyf,vzf,omegaf,thrustf,tauf;
+    problem.phases(1).bounds.upper.events   	<< py0,  pz0,  phi0,  vy0,  vz0, omega0, thrust0, tau0, pyf, pzf, phif, vyf,vzf,omegaf,thrustf,tauf;
+
+    problem.phases(1).guess.controls = u0;
+    problem.phases(1).guess.states = x0;
+    problem.phases(1).guess.time = t0;
+    psopt(solution, problem, algorithm);
+
+    if (solution.error_flag) return 0;
+
+    x = solution.get_states_in_phase(1);
+    u = solution.get_controls_in_phase(1);
+    t = solution.get_time_in_phase(1);
+    cout<<x<<endl;
+
+
+
     while (ros::ok())
     {
         ros::spinOnce();// to examine the queues of the callback functions once
-        if(currentupdateflag)
+//        if(currentupdateflag)
         {
             do_process();
-            if(resultofsolve==SUCCESSFUL_RETURN)
+//            cout<<"solution.error_flag:  "<<solution.error_flag<<endl;
+            if(!solution.error_flag)
             {
-                controlstate_msg.discrepointpersecond=discretizedpointpersecond;
+                interpolation();
+                controlstate_msg.discrepointpersecond=controlfreq;
                 controlstate_msg.inicounter=0;
-                controlstate_msg.arraylength=control.getNumPoints();
+                controlstate_msg.arraylength=floor(t(0,pointnumber-1)*controlfreq)+1;// becasue the first point's index starts from 0.
                 controlstate_msg.thrustarray.clear();
-                controlstate_msg.thetaarray.clear();
-                controlstate_msg.stateXarray.clear();
+                controlstate_msg.phiarray.clear();
+                controlstate_msg.tauarray.clear();
+                controlstate_msg.stateYarray.clear();
                 controlstate_msg.stateZarray.clear();
-                controlstate_msg.stateVXarray.clear();
+                controlstate_msg.stateVYarray.clear();
                 controlstate_msg.stateVZarray.clear();
-                for(int i=0;i<control.getNumPoints();i++)
+                for(int i=0;i<controlstate_msg.arraylength;i++)
                 {
-//                    cout<<"control.getNumPoints()-----!!!!:"<<control.getNumPoints()<<"  control.getMatrix(i)(0,0):"<<control.getMatrix(i)(0,0)<<endl;
-                    controlstate_msg.thrustarray.push_back((float)control.getMatrix(i)(0,0));
-//                    controlstate_msg.thetaarray.push_back((float)control.getMatrix(i)(1,0));
-                    controlstate_msg.stateXarray.push_back((float)state.getMatrix(i)(0,0));
-                    controlstate_msg.stateZarray.push_back((float)state.getMatrix(i)(1,0));
-                    controlstate_msg.stateVXarray.push_back((float)state.getMatrix(i)(2,0));
-                    controlstate_msg.stateVZarray.push_back((float)state.getMatrix(i)(3,0));
-                    controlstate_msg.thetaarray.push_back((float)state.getMatrix(i)(5,0));
-
+                    controlstate_msg.thrustarray.push_back(x_refined(6,i));
+                    controlstate_msg.phiarray.push_back(x_refined(2,i));
+                    controlstate_msg.stateYarray.push_back(x_refined(0,i));
+                    controlstate_msg.stateZarray.push_back(x_refined(1,i));
+                    controlstate_msg.stateVYarray.push_back(x_refined(3,i));
+                    controlstate_msg.stateVZarray.push_back(x_refined(4,i));
+                    controlstate_msg.tauarray.push_back(x_refined(7,i));
                 }
-//                ros::spinOnce();// update to newest state to match the state.
-//                controlstate_msg.inicounter=StateMatch();//match the state
+//                cout<<"controlstate_msg.arraylength----!!!!:"<<controlstate_msg.arraylength<<"  time:"<<t(0,pointnumber-1)<<endl;
                 controlstate_pub.publish(controlstate_msg);
-//                cout<<"controlstate_msg.stateXarray[0]-----------fffffff:"<<controlstate_msg.stateXarray[0]<<"  state.getMatrix(i)(0,0):"<<state.getMatrix(0)(0,0)<<endl;
+//                cout<<"controlstate_msg.stateXarray[0]-----------fffffff:"<<controlstate_msg.stateYarray[0]<<endl;
             }
             currentupdateflag= false;
-            planeVel_pub.publish(filteredPlaneVelmsg);
+//            planeVel_pub.publish(filteredPlaneVelmsg);
         }
         rate.sleep();
     }

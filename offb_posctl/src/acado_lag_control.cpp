@@ -4,7 +4,6 @@
 //#include <acado/acado_optimal_control.hpp>
 #include <acado/acado_toolkit.hpp>
 #include "ros/ros.h"
-#include "std_msgs/Float32.h"
 #include <chrono>
 #include "iomanip"
 #include <acado/acado_gnuplot.hpp>
