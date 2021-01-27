@@ -87,8 +87,8 @@ sensor_msgs::Imu drone_imu;
 Alg  algorithm;
 Sol  solution;
 Prob problem;
-double py0=0,pz0=0.5,phi0=0,vy0=0,vz0=0,omega0=0,thrust0=9.8,tau0=0;
-double pyf=2,pzf=2,phif=1.57,vyf=0.2*sin(phif),vzf=-0.2*cos(phif),omegaf=0.0,thrustf=9.8*cos(phif),tauf=0;
+double py0=0,pz0=0.5,phi0=0,vy0=0,vz0=0,omegax0=0,thrust0=9.8,tau0=0;
+double pyf=2,pzf=2,phif=1.57,vyf=0.2*sin(phif),vzf=-0.2*cos(phif),omegaxf=0.0,thrustf=9.8*cos(phif),tauf=0;
 ////x1=y,x2=z,x3=phi,x4=vy,x5=vz,x6=omega,x7=thrust,x8=tau//
 
 MatrixXd x  ;
@@ -215,8 +215,8 @@ void do_process()
 {
     chrono::time_point<chrono::steady_clock> begin_time = chrono::steady_clock::now();
 
-    problem.phases(1).bounds.lower.events   	<< py0,  pz0,  phi0,  vy0,  vz0, omega0, thrust0, tau0, pyf, pzf, phif, vyf,vzf,omegaf,thrustf,tauf;
-    problem.phases(1).bounds.upper.events   	<< py0,  pz0,  phi0,  vy0,  vz0, omega0, thrust0, tau0, pyf, pzf, phif, vyf,vzf,omegaf,thrustf,tauf;
+    problem.phases(1).bounds.lower.events   	<< py0,  pz0,  phi0,  vy0,  vz0, omegax0, thrust0, tau0, pyf, pzf, phif, vyf,vzf,omegaxf,thrustf,tauf;
+    problem.phases(1).bounds.upper.events   	<< py0,  pz0,  phi0,  vy0,  vz0, omegax0, thrust0, tau0, pyf, pzf, phif, vyf,vzf,omegaxf,thrustf,tauf;
 
     problem.phases(1).guess.controls = u;
     problem.phases(1).guess.states = x;
@@ -364,7 +364,7 @@ int main( int argc, char ** argv)
     psopt_level2_setup(problem, algorithm);
 
 
-    problem.phases(1).bounds.lower.states   	<<  -1,  0.5,  -1.57, -10, -10,-10,  0,   -10;
+    problem.phases(1).bounds.lower.states   	<<  -1,  0.2,  -1.57, -10, -10,-10,  0,   -10;
     problem.phases(1).bounds.upper.states   	<<   3,  10,    1.57,  10,  10, 10,  19.6, 10;
 
     problem.phases(1).bounds.lower.controls 	<< -15, -15;
@@ -412,8 +412,8 @@ int main( int argc, char ** argv)
     algorithm.print_level                 =0;
 /////////////////////////////////// construct the ocp problem
 
-    problem.phases(1).bounds.lower.events   	<< py0,  pz0,  phi0,  vy0,  vz0, omega0, thrust0, tau0, pyf, pzf, phif, vyf,vzf,omegaf,thrustf,tauf;
-    problem.phases(1).bounds.upper.events   	<< py0,  pz0,  phi0,  vy0,  vz0, omega0, thrust0, tau0, pyf, pzf, phif, vyf,vzf,omegaf,thrustf,tauf;
+    problem.phases(1).bounds.lower.events   	<< py0,  pz0,  phi0,  vy0,  vz0, omegax0, thrust0, tau0, pyf, pzf, phif, vyf,vzf,omegaxf,thrustf,tauf;
+    problem.phases(1).bounds.upper.events   	<< py0,  pz0,  phi0,  vy0,  vz0, omegax0, thrust0, tau0, pyf, pzf, phif, vyf,vzf,omegaxf,thrustf,tauf;
 
     problem.phases(1).guess.controls = u0;
     problem.phases(1).guess.states = x0;
@@ -432,7 +432,7 @@ int main( int argc, char ** argv)
     while (ros::ok())
     {
         ros::spinOnce();// to examine the queues of the callback functions once
-//        if(currentupdateflag)
+        if(currentupdateflag)
         {
             do_process();
 //            cout<<"solution.error_flag:  "<<solution.error_flag<<endl;
@@ -440,7 +440,7 @@ int main( int argc, char ** argv)
             {
                 interpolation();
                 controlstate_msg.discrepointpersecond=controlfreq;
-                controlstate_msg.inicounter=0;
+                controlstate_msg.inicounter=1;// the first value is current state, we should use at least next state
                 controlstate_msg.arraylength=floor(t(0,pointnumber-1)*controlfreq)+1;// becasue the first point's index starts from 0.
                 controlstate_msg.thrustarray.clear();
                 controlstate_msg.phiarray.clear();
@@ -453,6 +453,8 @@ int main( int argc, char ** argv)
                 {
                     controlstate_msg.thrustarray.push_back(x_refined(6,i));
                     controlstate_msg.phiarray.push_back(x_refined(2,i));
+                    controlstate_msg.thetaarray.push_back(0);
+                    controlstate_msg.stateXarray.push_back(0);
                     controlstate_msg.stateYarray.push_back(x_refined(0,i));
                     controlstate_msg.stateZarray.push_back(x_refined(1,i));
                     controlstate_msg.stateVYarray.push_back(x_refined(3,i));
@@ -466,7 +468,7 @@ int main( int argc, char ** argv)
             currentupdateflag= false;
 //            planeVel_pub.publish(filteredPlaneVelmsg);
         }
-        rate.sleep();
+//        rate.sleep(); // comment this to achieve the maximize refresh frequency
     }
 
     return 0;

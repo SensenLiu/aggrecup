@@ -33,6 +33,10 @@ bool Parameter::readParam(const char *addr) {
     {
         fs >> name >> value[0] >> value[1] >> value[2];
 
+        if(name == "Hoverthrust")
+        {
+            hoverthrust=value[0];
+        }
         if (name == "POS")
         {
             pos_x = value[0];

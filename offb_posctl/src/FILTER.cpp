@@ -17,6 +17,7 @@ FILTER::FILTER(int filterlength){
     Output_filter = 0;
     start_filter_flag = false;
     filter_length=filterlength;
+    derivation_legngth=filterlength;
 
 }
 
@@ -98,4 +99,24 @@ double FILTER::filter(double data)
         }
         return tempsum/filterlist.size();
     }
+}
+
+double FILTER::derivation(float data2derivation,float curtime)
+{
+    if(derivation_list.size() < derivation_legngth)
+    {
+        derivation_list.push_back(std::make_pair(curtime, data2derivation));
+        if(derivation_list.size()>=derivation_legngth)
+        {
+            return (derivation_list.back().second-derivation_list.front().second)/(derivation_list.back().first-derivation_list.front().first);
+        }
+        return 0.0;
+    }
+    else{
+        std::vector<std::pair<float, float > > ::iterator derivation_iter = derivation_list.begin();
+        derivation_list.erase(derivation_iter);
+        derivation_list.push_back(std::make_pair(curtime, data2derivation));
+        return (derivation_list.back().second-derivation_list.front().second)/(derivation_list.back().first-derivation_list.front().first);
+    }
+
 }

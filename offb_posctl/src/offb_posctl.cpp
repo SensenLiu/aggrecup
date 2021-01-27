@@ -29,6 +29,7 @@
 #include <ros/ros.h>
 #include "Parameter.h"
 #include <PID.h>
+#include <FILTER.h>
 
 
 //topic
@@ -88,9 +89,7 @@ nav_msgs::Odometry current_relativepostwist_msg;
 geometry_msgs::Vector3 targeterror_msg;
 geometry_msgs::Vector3 temp_angle;
 geometry_msgs::Vector3 rpy;
-offb_posctl::controlstate controlstatearray;
-offb_posctl::controlstate temp_controlstatearray;
-
+offb_posctl::controlstate controlstatearray_msg;
 
 float thrust_target;        //期望推力
 float Yaw_Init;
@@ -100,16 +99,19 @@ PID PIDVX, PIDVY, PIDVZ;    //声明PID类
 Parameter param;
 std::ofstream logfile;
 
-///for bvp
+///for psopt
 float px_ini = -3.0;
 float pz_ini = 0;
 float py_ini=0;
 float vx_ini = -0.1;
 float vz_ini = 0.0;
 float vy_ini=0;
+float phi_ini=0;
+float omegax_ini=0;
+float thrust_ini=9.8;
+float tau_ini=0;
+FILTER derivation_omegax(3);
 float t_end = 3;
-//float x_error_compensation = 0.75;
-//float z_error_compensation = 0.75;
 double thrustforceacc = 0.0;
 int pointnumber=150;// the number is almost always 20. It less, the accuracy won't be enough, if more, the time consumpiton will be too large.
 int controlfreq=50;
@@ -122,17 +124,16 @@ double euler_anlge_limit=0.314;
 
 
 ///for pitch compensation
-float comp_rpy[2];//[0] is the last pitch, [1] is the last last pitch
-float comp_pitch_target[6];//[0] is the last angle_target.y
 float comp_integrate,comp_last_error;
 float comp_kp = 0,comp_ki = 0,comp_kd = 0;
-//float comp_kp = 0.5,comp_ki = 0.01,comp_kd = 0.01;
+
 
 /// for tractor
 std::mutex mtx;
 double amp=0.5;
 float sinrate=3;
 double ocpPitch=0;
+double ocpRoll=0;
 double ax=0.0,az=0.0,ay=0.0;
 double axp=0.0,azp=0.0,ayp=0.0;
 double axv=0.0,azv=0.0,ayv=0.0;
@@ -168,11 +169,11 @@ void state_cb(const mavros_msgs::State::ConstPtr &msg){
 }//当有消息到达topic时会自动调用一次
 bool planeupdateflag= false;
 void plane_pos_cb(const nav_msgs::Odometry::ConstPtr &msg){
-    pose_drone_odom = *msg;//pose_drone_odom是nav_msgs::Odometry类型
+    pose_drone_odom = *msg;//pose_drone_odom is nav_msgs::Odometry type
     planeupdateflag= true;
 }
 void plane_imu_cb(const sensor_msgs::Imu::ConstPtr &msg){
-    pose_drone_Imu = *msg;//pose_drone_odom是nav_msgs::Odometry类型
+    pose_drone_Imu = *msg;
 }
 
 void plane_vel_cb(const geometry_msgs::TwistStamped::ConstPtr &msg){
@@ -182,18 +183,9 @@ void plane_vel_cb(const geometry_msgs::TwistStamped::ConstPtr &msg){
 void car_pos_cb(const nav_msgs::Odometry::ConstPtr &msg) {
     pose_car_odom = *msg;
 
-//    pose_car_odom.pose.pose.position.x = virtual_pos_x;
-//    pose_car_odom.pose.pose.position.y = 0;
-//    pose_car_odom.pose.pose.position.z = 0;
-//    pose_car_odom.twist.twist.linear.x = virtual_vel_x;
-//    pose_car_odom.twist.twist.linear.y = 0;
-//    pose_car_odom.twist.twist.linear.z = 0;
-
     plane_expected_position.x = pose_car_odom.pose.pose.position.x; //-1 means axis difference
     plane_expected_position.y = pose_car_odom.pose.pose.position.y; //-1 means axis difference
-    plane_expected_position.z = pose_car_odom.pose.pose.position.z + 1.5;
-
-//    plane_expected_position.z = pose_car_odom.pose.pose.position.z + 0.61 + z_error_compensation; //误差补偿
+    plane_expected_position.z = pose_car_odom.pose.pose.position.z + 0.5;
 }
 void plane_alt_cb(const std_msgs::Float64::ConstPtr &msg){
     plane_real_alt = *msg;
@@ -201,15 +193,12 @@ void plane_alt_cb(const std_msgs::Float64::ConstPtr &msg){
 bool contstaterecieveflag= false;
 void controlstate_cb(const offb_posctl::controlstate::ConstPtr &msg)
 {
-    controlstatearray = *msg;
-    temp_controlstatearray = controlstatearray;
-    controlcounter = controlstatearray.inicounter;
-
+    controlstatearray_msg = *msg;
+    controlcounter = controlstatearray_msg.inicounter;
     if(contstaterecieveflag == false)//第一次回调时初始化，之后这个flag一直是true
     {
         contstaterecieveflag= true;
-        discretizedpointpersecond=controlstatearray.discrepointpersecond;
-//        temp_controlstatearray = controlstatearray;
+        discretizedpointpersecond=controlstatearray_msg.discrepointpersecond;
     }
 
 }
@@ -264,23 +253,6 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
 //        return 0;
     }
 
-/**    //!<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<read target u <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<//
-//
-//    ifstream fin_u1,fin_u2,fin_x,fin_z;// the instance can be used to read the file
-//    string line; //used for store the one line data from csv temporarily
-//    int counter = 0;// the index of the u array
-//    // Open an existing file
-//    fin_u1.open("/home/lynn/catkin_ws/src/gazebo_ros_learning/offb_posctl/data/u1.csv");// the directory of th data.csv
-//    while (!fin_u1.eof()) {// juddge whether the fin reach the end line of the csv file
-//        fin_u1 >> line;// read one line data to "line"
-//        thrust[counter] = atof(line.c_str());// convert the string into double and put the converted double data into the array
-////            cout <<thrust[counter]<< endl;// cout the array
-//        counter++; // counter plus plus
-//    }
-//    fin_u1.close();//close！！
-
-//    //!>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> read target u >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>//
- */
 
     /// 设置速度环PID参数 比例参数 积分参数 微分参数
     PIDVX.setPID(param.vx_p, param.vx_i, param.vx_d);
@@ -320,11 +292,8 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
     target_atti_thrust_msg.orientation.w = w;
     ROS_INFO("got initial point ");
 
-    for (int i = 10; ros::ok() && i >
-                                  0; --i)// let drone take off slightly at begining, but this step seems useless because the drono has not been armed
+    for (int i = 10; ros::ok() && i >0; --i)// let drone take off slightly at begining, but this step seems useless because the drono has not been armed
     {
-//            target_thrust_pub.publish(target_thrust_msg);
-//            target_attitude_pub.publish(target_attitude);
         target_atti_thrust_pub.publish(target_atti_thrust_msg);
         ros::spinOnce();//让回调函数有机会被执行
         rate.sleep();
@@ -332,8 +301,6 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
     ROS_INFO("OUT OF LOOP WAIT");
 
 
-
-    /// change mode to arm ,then offboard 发出请求
     mavros_msgs::CommandBool arm_cmd; //解锁
     mavros_msgs::SetMode offb_set_mode;
     offb_set_mode.request.custom_mode = "OFFBOARD";
@@ -359,21 +326,18 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                 last_request = ros::Time::now();
             }
         }
-//        target_attitude_pub.publish(target_attitude);
-//        target_thrust_pub.publish(target_thrust_msg);
         target_atti_thrust_pub.publish(target_atti_thrust_msg);
         if (plane_real_alt.data > 0.7) {
             ROS_INFO("plane takeoff !");
             break;
         }
-
         ros::spinOnce();
         rate.sleep();
     }
 
 
     /// reach initial hover position and pose by position control
-    float error_position_sum = 0;
+    /*float error_position_sum = 0;
     float error_pose_sum = 5;
     float yaw_current;
     ros::Time begin_time_01 = ros::Time::now();
@@ -385,18 +349,14 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
     vector<float> orientation_w;
     got_initial_point = true;
     base_atti_thrust_msg.thrust=0.57;
-//    while (ros::ok() && (adjust_flag || pose_car_odom.twist.twist.linear.x < 0.09))//没有给小车速度时始终在这个循环里
-    while (ros::ok() && (count < 500 || pose_car_odom.twist.twist.linear.x < 0.09))//没有给小车速度时始终在这个循环里
-//    while (ros::ok() && ( adjust_flag || vel_drone.twist.linear.x < 2.0 || pose_drone_odom.pose.pose.position.x - pose_car_odom.pose.pose.position.x <= -0.5))
-//    while (ros::ok())
+
+    while (ros::ok() && count < 500)//没有给小车速度时始终在这个循环里
     {
-        cout << "------------Adjusting Loop----------------" << endl;
-//        virtual_vel_x = min(virtual_vel_x+0.02,2.0);// a = 1 m/s2
-//        virtual_pos_x += virtual_vel_x/controlfreq;
+
         ros::spinOnce();
-        cout << "The waffle pi velocity is:" << pose_car_odom.twist.twist.linear.x << endl;
-        cout<<"plane_vel.x:"<<vel_drone.twist.linear.x<<endl;
-        cout<<"plane-car.x:"<<pose_drone_odom.pose.pose.position.x - pose_car_odom.pose.pose.position.x<<endl;
+        plane_expected_position.x = 0; //-1 means axis difference
+        plane_expected_position.y = 0; //-1 means axis difference
+        plane_expected_position.z = 0.5;
 
         float cur_time_01 = get_ros_time(begin_time_01);  // 相对时间
         pix_controller(cur_time_01);
@@ -404,32 +364,6 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
         target_atti_thrust_msg.header.stamp.nsec = pose_car_odom.header.stamp.nsec;
         target_atti_thrust_msg.orientation = orientation_target;
         target_atti_thrust_msg.thrust = thrust_target;
-//
-//        if (count > 400)//600
-//        {
-//            thrust_target_sum += thrust_target;
-//            orientation_x.push_back(orientation_target.x);
-//            orientation_y.push_back(orientation_target.y);
-//            orientation_z.push_back(orientation_target.z);
-//            orientation_w.push_back(orientation_target.w);
-//
-//            if (count == 500) {//700
-//                int n = orientation_x.size();
-//                //!>>>>>>>>>>>>>> find base rpy and thrust>>>>>>>>>>>>>>>>>//
-//                base_atti_thrust_msg.thrust = thrust_target_sum / n;
-//                base_atti_thrust_msg.orientation.x = orientation_target.x / n;//求平均作为base
-//                base_atti_thrust_msg.orientation.y = orientation_target.y / n;
-//                base_atti_thrust_msg.orientation.z = orientation_target.z / n;
-//                base_atti_thrust_msg.orientation.w = orientation_target.w / n;
-//                //!<<<<<<<<<<<<< find base rpy and thrust<<<<<<<<<<<<<//
-//                cout << "base_atti_thrust_msg.thrust: " << base_atti_thrust_msg.thrust << endl;
-//                cout << "You can run Waffle pi!" << endl;
-//                adjust_flag = false;
-//            }
-////            cout << "base_atti_thrust_msg.orientation.y: " << base_atti_thrust_msg.orientation.y  << endl;
-////            cout << "base_atti_thrust_msg.orientation.z: " << base_atti_thrust_msg.orientation.z  << endl;
-////            cout << "base_atti_thrust_msg.orientation.w: " << base_atti_thrust_msg.orientation.w  << endl;
-//        }
 
         temp_angle = quaternion2euler(pose_drone_odom.pose.pose.orientation.x, pose_drone_odom.pose.pose.orientation.y,
                                       pose_drone_odom.pose.pose.orientation.z, \
@@ -439,19 +373,7 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
         rpy.z = temp_angle.z;
         plane_rpy_pub.publish(rpy);
 
-//        ///for pitch compensation
-//        comp_rpy[1] = comp_rpy[0];
-//        comp_rpy[0] = rpy.y;
-//        for (int k = 5; k >= 0; k--)
-//        {
-//            if (k!=0){
-//                comp_pitch_target[k] = comp_pitch_target[k-1];
-//            }
-//            else{
-//                comp_pitch_target[k] = angle_target.y;
-//            }
-//
-//        }
+
         target_atti_thrust_pub.publish(target_atti_thrust_msg);
         rate.sleep();//休息
 
@@ -464,51 +386,132 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
     }
 
     ROS_INFO("reached initial point and pose ");
+    */
     // 记录启控时间
     ros::Time begin_time_02 = ros::Time::now();
-
-
+    int quad_state=0;//0 climbhover, 1 AggressiveFly, 2 AdhesionPhase, 3 keep current state hover, 4 AdhesionSuccess
+    int tempcounter=0;
+    float ascentvel=15;
+    float tempCurrentPx=0,tempCurrentPy=0,tempCurrentPz=0;
     int lefnodeindex = 0;
     int rightnodeindex = 0;
 
 ///>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>主  循  环<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     while (ros::ok()) {
 
-        cout << "----------------BVP control Loop-------------------" << endl;
-//        virtual_vel_x += 0.002;
-//        virtual_pos_x += virtual_vel_x/controlfreq;
-        cout << "The waffle pi velocity is:" << pose_car_odom.twist.twist.linear.x << endl;
         ros::spinOnce();//刷新callback的消息
 
-        /// publish current_relativepostwist_msg
-        if (planeupdateflag)   //订阅到飞机位置则flag为true，发布完相对位置的消息后flag置false
-        {
-            switch (controlmode) {
-                case 0:
-                    px_ini = pose_drone_odom.pose.pose.position.x - pose_car_odom.pose.pose.position.x - 3;
-//                  px_ini =pose_drone_odom.pose.pose.position.x-pose_car_odom.pose.pose.position.x- 4.13;// 误差补偿
-                    pz_ini = pose_drone_odom.pose.pose.position.z - (pose_car_odom.pose.pose.position.z + 1.5);
-//                  pz_ini = pose_drone_odom.pose.pose.position.z -
-//                             (pose_car_odom.pose.pose.position.z + 0.61 + z_error_compensation);// 误差补偿
-                    py_ini = pose_drone_odom.pose.pose.position.y - pose_car_odom.pose.pose.position.y;
-                    vx_ini = vel_drone.twist.linear.x - pose_car_odom.twist.twist.linear.x;
-                    vz_ini = vel_drone.twist.linear.z - pose_car_odom.twist.twist.linear.z;
-                    vy_ini = vel_drone.twist.linear.y - pose_car_odom.twist.twist.linear.y;
-                    break;
-                case 1:
-                    //// for tracker regualtion
-                    px_ini = pose_drone_odom.pose.pose.position.x - 3;
-                    pz_ini = pose_drone_odom.pose.pose.position.z;
-                    py_ini = pose_drone_odom.pose.pose.position.y;
-                    vx_ini = vel_drone.twist.linear.x;
-                    vz_ini = vel_drone.twist.linear.z;
-                    vy_ini = vel_drone.twist.linear.y;
-                    //// for tracker regualtion
-                    break;
-                default:
-                    break;
+        float cur_time = get_ros_time(begin_time_02);  // 当前时间
+        switch (quad_state) {
+            case 0:
+                plane_expected_position.z=plane_expected_position.z+ascentvel*cur_time;
+                plane_expected_position.z=min(plane_expected_position.z,0.5);
+                plane_expected_position.x=0;
+                plane_expected_position.y=0;
+                pix_controller(cur_time);
 
-            }
+                if(plane_expected_position.z>=0.5)
+                {
+                    tempcounter++;
+                    if(tempcounter>=150)
+                    {
+                        quad_state=1;
+                        controlcounter=1;
+                        tempcounter=0;
+                    }
+                }
+                break;
+            case 1:
+                if(contstaterecieveflag)  //订阅到bvp计算的控制量则flag为true,用于起始时刻,还没算出bvp时
+                {
+                    lefnodeindex = controlcounter;
+                    if (lefnodeindex+1 < controlstatearray_msg.arraylength)
+                    {
+                        ///compensation
+                        ocpRoll = controlstatearray_msg.phiarray[lefnodeindex];
+                        thrustforceacc = controlstatearray_msg.thrustarray[lefnodeindex];
+
+                        plane_expected_position.z=controlstatearray_msg.stateZarray[lefnodeindex];
+                        plane_expected_position.x=controlstatearray_msg.stateXarray[lefnodeindex];
+                        plane_expected_position.y=controlstatearray_msg.stateYarray[lefnodeindex];
+                        pix_controller(cur_time);
+
+                        if (lefnodeindex <= 6)
+                        {
+                            orientation_target = euler2quaternion(ocpRoll, angle_target.y, angle_target.z);
+                            thrust_target = (float) (param.hoverthrust) * thrustforceacc / 9.8;
+                        }
+                    }
+                    controlcounter++;
+                    if(controlcounter>=controlstatearray_msg.arraylength ||controlstatearray_msg.arraylength<=10)
+                    {
+                        quad_state=2;
+                    }
+                } else{
+                    pix_controller(cur_time);
+                }
+                break;
+            case 2:
+                tempCurrentPx=pose_drone_odom.pose.pose.position.x;
+                tempCurrentPy=pose_drone_odom.pose.pose.position.y;
+                tempCurrentPz=pose_drone_odom.pose.pose.position.z;;
+                tempcounter++;
+                if(tempCurrentPz<controlstatearray_msg.stateZarray[controlstatearray_msg.arraylength-1]-0.15)
+                {
+                    quad_state=3;
+                    tempcounter=0;
+                }
+                if(tempcounter>=100&&tempCurrentPz>=controlstatearray_msg.stateZarray[controlstatearray_msg.arraylength-1]-0.15)
+                {
+                    quad_state=4;
+                    tempcounter=0;
+                }
+                orientation_target = euler2quaternion(controlstatearray_msg.phiarray[controlstatearray_msg.arraylength-1], controlstatearray_msg.thetaarray[controlstatearray_msg.arraylength-1], angle_target.z);
+                thrust_target  = param.hoverthrust*cos(controlstatearray_msg.phiarray[controlstatearray_msg.arraylength-1])*cos(controlstatearray_msg.thetaarray[controlstatearray_msg.arraylength-1]);   //目标推力值 to alleviate the gravity's component along the drone's z axis
+//                thrust_target  = 0.2;   //目标推力值,只是用来保证提供扭矩，the drone is easy to fall freely and crash
+                ROS_INFO_STREAM("Duringsuck_thrust_target: "<< thrust_target<<" roll:"<<controlstatearray_msg.phiarray[controlstatearray_msg.arraylength-1]<<" pitch:"<<controlstatearray_msg.thetaarray[controlstatearray_msg.arraylength-1]<<" yaw:"<<angle_target.z);
+                break;
+                break;
+            case 3:
+                plane_expected_position.x=tempCurrentPx;
+                plane_expected_position.y=tempCurrentPy;
+                plane_expected_position.z=tempCurrentPz;
+                pix_controller(cur_time);
+                break;
+            case 4:
+                orientation_target = euler2quaternion(controlstatearray_msg.phiarray[controlstatearray_msg.arraylength-1], controlstatearray_msg.thetaarray[controlstatearray_msg.arraylength-1], angle_target.z);
+                thrust_target  = 0;   //目标推力值
+                ROS_INFO_STREAM("Sucksuccess_thrust_target: "<< thrust_target<<" roll:"<<angle_target.x<<" pitch:"<<angle_target.y<<" yaw:"<<angle_target.z);
+                break;
+            default:
+                break;
+        }
+//        if(quad_state!=4&&quad_state!=2)
+//        {
+//            pix_controller(cur_time);
+//        }
+        cout<<"refpos x y z: "<<plane_expected_position.x<<"   y:"<<plane_expected_position.y<<"  z:"<<plane_expected_position.z<<endl;
+
+        if (planeupdateflag && pose_drone_odom.pose.pose.position.z>=0.2)   //订阅到飞机位置则flag为true，发布完相对位置的消息后flag置false
+        {
+            omegax_ini=min(max(pose_drone_odom.twist.twist.angular.x,-10.0),10.0);
+
+            tau_ini=derivation_omegax.derivation(cur_time,pose_drone_odom.twist.twist.angular.x);
+            tau_ini=min(max((double)tau_ini,-10.0),10.0);
+
+            phi_ini=temp_angle.x;
+
+            px_ini = pose_drone_odom.pose.pose.position.x;
+            pz_ini = max(pose_drone_odom.pose.pose.position.z,0.2);
+            py_ini = pose_drone_odom.pose.pose.position.y;
+            vx_ini = vel_drone.twist.linear.x;
+            vz_ini = vel_drone.twist.linear.z;
+            vy_ini = vel_drone.twist.linear.y;
+
+            thrust_ini=thrust_target/param.hoverthrust*9.8;
+            thrust_ini=min((double)thrust_ini,19.6);
+
+
             std::cout << "px_ini:  " << px_ini << "pz_ini:  " << pz_ini << "vx_ini:  " << vx_ini << "vz_ini:  "
                       << vz_ini << std::endl;//输出,放到py文件中求解
             cout<<"va_ini:"<<vel_drone.twist.linear.x<<endl;
@@ -518,94 +521,14 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
             current_relativepostwist_msg.twist.twist.linear.x = vx_ini;
             current_relativepostwist_msg.twist.twist.linear.y = vy_ini;
             current_relativepostwist_msg.twist.twist.linear.z = vz_ini;
+            current_relativepostwist_msg.pose.pose.orientation.x=phi_ini;
+            current_relativepostwist_msg.pose.pose.orientation.y=omegax_ini;
+            current_relativepostwist_msg.pose.pose.orientation.z=thrust_ini;
+            current_relativepostwist_msg.pose.pose.orientation.w=tau_ini;
             current_relativepostwist_msg.header.stamp = pose_drone_odom.header.stamp;
             current_relativepostwist_pub.publish(current_relativepostwist_msg);
             planeupdateflag = false;
         }
-        /// publish current_relativepostwist_msg
-
-
-        float cur_time_02 = get_ros_time(begin_time_02);  // 当前时间 → delta(e)
-        pix_controller(cur_time_02);                   //备用控制程序
-
-        /// calculate orientation_target & thrust_target & planned_postwist_msg in ocp or tractor
-        if (contstaterecieveflag)  //订阅到bvp计算的控制量则flag为true,用于起始时刻,还没算出bvp时
-        {
-            lefnodeindex = controlcounter;
-            if (lefnodeindex+1 < temp_controlstatearray.arraylength)
-            {
-                ///compensation
-                bvp_ocpPitch = temp_controlstatearray.thetaarray[lefnodeindex];
-                bvp_thrustforceacc = temp_controlstatearray.thrustarray[lefnodeindex];
-
-                if (lefnodeindex <= 4)
-                {
-                    ocpPitch = bvp_ocpPitch;
-                    thrustforceacc = bvp_thrustforceacc;
-                }
-                else
-                {
-
-                    bvp_acc_x = bvp_thrustforceacc * sin(bvp_ocpPitch) + bvp_feedback_gain_x[0] * (temp_controlstatearray.stateXarray[lefnodeindex] - px_ini) + bvp_feedback_gain_x[1] * (temp_controlstatearray.stateVXarray[lefnodeindex] - vx_ini);
-                    bvp_acc_z = bvp_thrustforceacc * cos(bvp_ocpPitch) + bvp_feedback_gain_z[0] * (temp_controlstatearray.stateZarray[lefnodeindex] - pz_ini) + bvp_feedback_gain_z[1] * (temp_controlstatearray.stateVZarray[lefnodeindex] - vz_ini);
-                    thrustforceacc = sqrt(pow(bvp_acc_x,2)+pow(bvp_acc_z,2));
-                    ocpPitch = atan2(bvp_acc_x, bvp_acc_z);
-
-                }
-                ///amplitude restriction
-                bvp_restrict_ax = min(max(thrustforceacc * sin(ocpPitch),-5.0),5.0);
-                bvp_restrict_az = min(max(thrustforceacc * cos(ocpPitch),7.0),13.0);
-//                bvp_acc_y= PIDVY.Output;
-//                thrustforceacc = sqrt(bvp_restrict_ax*bvp_restrict_ax + bvp_restrict_az*bvp_restrict_az+bvp_acc_y*bvp_acc_y);
-//                angle_target.x = min(max(asin(-bvp_acc_y/thrustforceacc),-1*euler_anlge_limit),euler_anlge_limit);
-//                angle_target.y = min(max(atan2(bvp_restrict_ax,bvp_restrict_az),-1*euler_anlge_limit),euler_anlge_limit);
-//                angle_target.z = Yaw_Init;//目标推力值
-//
-                thrustforceacc = sqrt(bvp_restrict_ax*bvp_restrict_ax + bvp_restrict_az*bvp_restrict_az);
-                angle_target.y = atan2(bvp_restrict_ax,bvp_restrict_az);
-
-//                ocpPitch = temp_controlstatearray.thetaarray[lefnodeindex];
-//                angle_target.y = ocpPitch;
-////                cout<< "ocpPitch:" <<ocpPitch<<endl;
-////                angle_target.y = pitch_compensation(ocpPitch,temp_controlstatearray.thetaarray[lefnodeindex+1],comp_rpy,comp_pitch_target);//补偿
-////                cout<< "ocpPitch_comp:" <<angle_target.y<<endl;
-//                angle_target.y = min(max(angle_target.y,-0.628),0.628);
-//                thrustforceacc = temp_controlstatearray.thrustarray[lefnodeindex];
-
-                orientation_target = euler2quaternion(angle_target.x, angle_target.y, angle_target.z);
-                thrust_target = (float) (base_atti_thrust_msg.thrust) * thrustforceacc / 9.8;
-                planned_u_msg.pose.pose.position.x = bvp_thrustforceacc; //after restrict & compensate
-                planned_u_msg.pose.pose.position.y = bvp_ocpPitch;
-                planned_u_msg.twist.twist.linear.x = thrustforceacc;
-                planned_u_msg.twist.twist.linear.z = angle_target.y;
-                ocplan_u_pub.publish(planned_u_msg);
-
-//                data_log(logfile, cur_time_02); //保存数据
-
-                switch (controlmode) {
-                    case 0:
-                        planned_postwist_msg.pose.pose.position.x = temp_controlstatearray.stateXarray[lefnodeindex];
-                        planned_postwist_msg.pose.pose.position.z = temp_controlstatearray.stateZarray[lefnodeindex];
-                        planned_postwist_msg.twist.twist.linear.x = temp_controlstatearray.stateVXarray[lefnodeindex];
-                        planned_postwist_msg.twist.twist.linear.z = temp_controlstatearray.stateVZarray[lefnodeindex];
-                        break;
-                    case 1:
-                        /// for trakcer regualtion
-                        planned_postwist_msg.pose.pose.position.x = amp * sin(cur_time_02 * sinrate);
-                        planned_postwist_msg.pose.pose.position.z = 1.5;
-                        planned_postwist_msg.twist.twist.linear.x = amp * sinrate * cos(cur_time_02 * sinrate);
-                        planned_postwist_msg.twist.twist.linear.z = 0;
-                        tractor_controller(cur_time_02);//相对时间
-                        /// for trakcer regualtion
-                        break;
-                    default:
-                        break;
-                }
-
-            }
-        }
-        /// ---------------------------------------------------------------------------------------------------///
-
 
             ///publish plane current rpy
             temp_angle = quaternion2euler(pose_drone_odom.pose.pose.orientation.x,
@@ -617,21 +540,6 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
             rpy.z = temp_angle.z;
             plane_rpy_pub.publish(rpy);
 
-            ///for pitch compensation
-//            comp_rpy[1] =  comp_rpy[0];
-//            comp_rpy[0] =  rpy.y;
-////            cout<<"comp_rpy[1]:"<<comp_rpy[1]<<endl;
-////            cout<<"comp_rpy[0]:"<<comp_rpy[0]<<endl;
-//            for (int k = 5; k >= 0; k--)
-//            {
-//                if (k!=0){
-//                    comp_pitch_target[k] = comp_pitch_target[k-1];
-//                }
-//                else{
-//                    comp_pitch_target[k] = angle_target.y;
-//                }
-////            cout<<"comp_pitch_target["<<k<<"]:"<<comp_pitch_target[k]<<endl;
-//            }
 
             ///publish thrust & orientation
             std::cout << "thrust_target: " << thrust_target << std::endl;
@@ -649,20 +557,10 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
 
             ///publish targeterror_msg
             targeterror_msg.x = px_ini + 3;
-//        targeterror_msg.x=px_ini+3; //误差补偿
             targeterror_msg.z = pz_ini + px_ini * rpy.y;
-//        targeterror_msg.z=pz_ini+px_ini*rpy.y + z_error_compensation;//误差补偿
             targeterror_msg.y = py_ini;//pub time consumption
             targeterror_pub.publish(targeterror_msg);
-
             rate.sleep();
-
-
-            if (lefnodeindex+1 < temp_controlstatearray.arraylength) //用一次ocp的控制量，counter+1，直到重新订阅到ocp
-            {
-                controlcounter = (controlcounter + 1);
-            }
-            cout << "controlcounter: " << controlcounter << endl;
 
         }
         logfile.close();
@@ -812,7 +710,6 @@ void tractor_controller(float time)
 }
 
 int pix_controller(float cur_time)
-//int pix_controller(int cur_time)
 {
 //位 置 环
     //计算误差
@@ -839,7 +736,7 @@ int pix_controller(float cur_time)
         PIDVZ.start_intergrate_flag = false;
     }
     //计算误差
-    float error_vx = vel_xd - vel_drone.twist.linear.x+pose_car_odom.twist.twist.linear.x;
+    float error_vx = vel_xd - vel_drone.twist.linear.x;
     float error_vy = vel_yd - vel_drone.twist.linear.y;
     float error_vz = vel_zd - vel_drone.twist.linear.z;
     //传递误差
@@ -868,7 +765,7 @@ int pix_controller(float cur_time)
 
     orientation_target = euler2quaternion(angle_target.x, angle_target.y, angle_target.z);
 //    thrust_target = (float)(0.05 * (9.8 + PIDVZ.Output));   //目标推力值
-    thrust_target  = (float)sqrt(pow(PIDVX.Output,2)+pow(PIDVY.Output,2)+pow(PIDVZ.Output+9.8,2))/9.8*(0.56);   //目标推力值
+    thrust_target  = (float)sqrt(pow(PIDVX.Output,2)+pow(PIDVY.Output,2)+pow(PIDVZ.Output+9.8,2))/9.8*(param.hoverthrust);   //目标推力值
 
 //    std::cout << "PIDVZ.OUTPUT:  " << PIDVZ.Output << std::endl;
 //    std::cout << "thrust_target:  " << thrust_target << std::endl;
