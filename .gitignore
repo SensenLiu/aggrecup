@@ -1,1 +1,22 @@
+<<<<<<< HEAD
 offb_posctl/data/multi_point/revise_bvp_table.csv
+=======
+# Build and Release Folders
+bin-debug/
+bin-release/
+[Oo]bj/
+[Bb]in/
+
+# Other files and folders
+.settings/
+
+# Executables
+*.swf
+*.air
+*.ipa
+*.apk
+
+# Project files, i.e. `.project`, `.actionScriptProperties` and `.flexProperties`
+# should NOT be excluded as they contain compiler settings and other important
+# information for Eclipse / Flash Builder.
+>>>>>>> d0f371bc99800e8b332de679b4cd972010e30ca3

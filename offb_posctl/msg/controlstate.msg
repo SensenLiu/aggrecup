@@ -12,3 +12,6 @@ float32[] stateZarray
 float32[] stateVXarray
 float32[] stateVYarray
 float32[] stateVZarray
+float32[] stateAXarray
+float32[] stateAYarray
+float32[] stateAZarray

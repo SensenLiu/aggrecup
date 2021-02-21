@@ -22,7 +22,7 @@ include_directories ( "/home/sensenliu/coinbrew_ipopt/Ipopt/src/Interfaces" "/ho
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(ipopt REQUIRED IMPORTED_TARGET ipopt)
 
-#message("------------------ " adolc)
+
 
 ## Generate messages in the 'msg' folder
  add_message_files(
@@ -94,15 +94,15 @@ catkin_package(
 #
 ### Specify additional locations of header files
 ### Your package locations should be listed before other locations
-##include_directories(
-##include
-##${catkin_INCLUDE_DIRS})
-#
-### Declare a C++ library
-## add_library(${PROJECT_NAME}
-##   src/${PROJECT_NAME}/offb_posctl.cpp
-## )
-#
+#include_directories(
+#include
+#${catkin_INCLUDE_DIRS})
+
+## Declare a C++ library
+# add_library(${PROJECT_NAME}
+#   src/${PROJECT_NAME}/offb_posctl.cpp
+# )
+
 ### Add cmake target dependencies of the library
 ### as an example, code may need to be generated before libraries
 ### either from message generation or dynamic reconfigure
@@ -177,6 +177,7 @@ catkin_package(
 ## add_dependencies(offb_posctl offb_posctl_generate_messages_cpp)
 include_directories(
         /home/sensenliu/catkin_ws/src/acado/include
+        /home/sensenliu/catkin_ws/devel/include/offb_posctl
         ${catkin_INCLUDE_DIRS}
         src/)
 #
@@ -188,7 +189,7 @@ add_library(thelib
         src/FILTER.h
         src/FILTER.cpp)
 #
-
+message("------------------ " ${catkin_INCLUDE_DIRS})
 #
 #
 #
@@ -196,11 +197,11 @@ add_executable(offb_posctl
         src/offb_posctl.cpp)
 target_link_libraries(offb_posctl ${catkin_LIBRARIES} thelib)
 target_link_libraries(offb_posctl
-        ${catkin_LIBRARIES}
         /home/sensenliu/catkin_ws/src/acado/lib/libacado_toolkit_s.so
         )
 link_directories("lib")
 link_libraries("/home/sensenliu/catkin_ws/src/acado/lib/libacado_toolkit_s.so")
+add_dependencies(offb_posctl offb_posctl_gencpp)
 
 add_executable(acado_lag_control src/acado_lag_control.cpp )
 target_link_libraries(acado_lag_control ${catkin_LIBRARIES} thelib)
@@ -213,7 +214,7 @@ add_executable(readtrajectoryfile src/readtrajectoryfile.cpp )
 target_link_libraries(readtrajectoryfile ${catkin_LIBRARIES} thelib)
 
 add_executable(minitime_psopt_control  src/minitime_psopt_control.cpp)
-target_link_libraries(minitime_psopt_control PUBLIC PSOPT PRIVATE PkgConfig::ipopt adolc ${catkin_LIBRARIES} thelib
+target_link_libraries(minitime_psopt_control  PUBLIC PSOPT PRIVATE PkgConfig::ipopt adolc ${catkin_LIBRARIES} thelib
          )
-#add_dependencies(offb_posctl offb_posctl_gencpp)
+add_dependencies(offb_posctl offb_posctl_gencpp)
 

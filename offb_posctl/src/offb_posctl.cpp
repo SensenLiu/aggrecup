@@ -52,7 +52,7 @@
 #include <mavros_msgs/Thrust.h>
 #include <mavros_msgs/AttitudeTarget.h>
 #include <sensor_msgs/Imu.h>
-
+#include <nav_msgs/Path.h>
 
 #include "ros/ros.h"
 #include "std_msgs/Float32.h"
@@ -90,6 +90,7 @@ geometry_msgs::Vector3 targeterror_msg;
 geometry_msgs::Vector3 temp_angle;
 geometry_msgs::Vector3 rpy;
 offb_posctl::controlstate controlstatearray_msg;
+offb_posctl::controlstate temp_controlstatearray_msg;
 
 float thrust_target;        //期望推力
 float Yaw_Init;
@@ -110,7 +111,7 @@ float phi_ini=0;
 float omegax_ini=0;
 float thrust_ini=9.8;
 float tau_ini=0;
-FILTER derivation_omegax(3);
+FILTER derivation_omegax(10);
 float t_end = 3;
 double thrustforceacc = 0.0;
 int pointnumber=150;// the number is almost always 20. It less, the accuracy won't be enough, if more, the time consumpiton will be too large.
@@ -183,14 +184,15 @@ void plane_vel_cb(const geometry_msgs::TwistStamped::ConstPtr &msg){
 void car_pos_cb(const nav_msgs::Odometry::ConstPtr &msg) {
     pose_car_odom = *msg;
 
-    plane_expected_position.x = pose_car_odom.pose.pose.position.x; //-1 means axis difference
-    plane_expected_position.y = pose_car_odom.pose.pose.position.y; //-1 means axis difference
-    plane_expected_position.z = pose_car_odom.pose.pose.position.z + 0.5;
+//    plane_expected_position.x = pose_car_odom.pose.pose.position.x; //-1 means axis difference
+//    plane_expected_position.y = pose_car_odom.pose.pose.position.y; //-1 means axis difference
+//    plane_expected_position.z = pose_car_odom.pose.pose.position.z + 0.5;
 }
 void plane_alt_cb(const std_msgs::Float64::ConstPtr &msg){
     plane_real_alt = *msg;
 }
 bool contstaterecieveflag= false;
+int userfulpointcounter=1;
 void controlstate_cb(const offb_posctl::controlstate::ConstPtr &msg)
 {
     controlstatearray_msg = *msg;
@@ -226,7 +228,7 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
             "mavros/local_position/velocity_local", 1, plane_vel_cb); //twist
     ros::Subscriber car_position_sub = nh.subscribe<nav_msgs::Odometry>("odom", 1, car_pos_cb); //车的pos+twist
     ros::Subscriber plane_alt_sub = nh.subscribe<std_msgs::Float64>("mavros/global_position/rel_alt", 1, plane_alt_cb);
-    ros::Subscriber controlstate_sub = nh.subscribe<offb_posctl::controlstate>("bvp_controlstate", 1, controlstate_cb);
+    ros::Subscriber controlstate_sub = nh.subscribe<offb_posctl::controlstate>("ocp/control_state", 1, controlstate_cb);
     // 【发布】飞机姿态/拉力信息 坐标系:NED系
     ros::Publisher ocplan_postwist_pub = nh.advertise<nav_msgs::Odometry>("ocplan_positiontwist", 1);//bvp计算的期望位置
     ros::Publisher ocplan_u_pub = nh.advertise<nav_msgs::Odometry>("ocplan_u", 1);//bvp计算的期望控制量(,没有转化的)
@@ -236,11 +238,13 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
     ros::Publisher current_relativepostwist_pub = nh.advertise<nav_msgs::Odometry>("current_relative_postwist",
                                                                                    1);//当前状态方程中的状态量,即相对量
     ros::Publisher targeterror_pub = nh.advertise<geometry_msgs::Vector3>("targeterror", 1);//目标误差
+    ros::Publisher path_pub = nh.advertise<nav_msgs::Path>("atucaltrajectory",1, true);
+
     // 频率 [30Hz]
     ros::Rate rate(controlfreq);   //50hz的频率发送/接收topic  ros与pixhawk之间,50Hz control frequency
 
     // log输出文件初始化
-    logfile.open("/home/sensenliu/catkin_ws/src/gazebo_ros_learning/offb_posctl/log/pitch_log_hover1.csv", std::ios::out);
+    logfile.open("/home/sensenliu/catkin_ws/src/gazebo_ros_learning/offb_posctl/data/pitch_log_hover1.csv", std::ios::out);
     if (!logfile.is_open()) {
         ROS_ERROR("log to file error!");
 //        return 0;
@@ -276,7 +280,7 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
     target_atti_thrust_msg.orientation.y = 0;
     target_atti_thrust_msg.orientation.z = 0;
     target_atti_thrust_msg.orientation.w = -1;
-    target_atti_thrust_msg.thrust = 0.65; //65%的油门 50%与重力平衡即悬停
+    target_atti_thrust_msg.thrust = 0.0; //65%的油门 50%与重力平衡即悬停
 
     /// get car current pose to set plane pose
     float x = pose_car_odom.pose.pose.orientation.x;
@@ -322,15 +326,12 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                 if (arming_client.call(arm_cmd) &&
                     arm_cmd.response.success) {
                     ROS_INFO("Vehicle armed");
+                    break;
                 }
                 last_request = ros::Time::now();
             }
         }
         target_atti_thrust_pub.publish(target_atti_thrust_msg);
-        if (plane_real_alt.data > 0.7) {
-            ROS_INFO("plane takeoff !");
-            break;
-        }
         ros::spinOnce();
         rate.sleep();
     }
@@ -397,10 +398,15 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
     int rightnodeindex = 0;
 
 ///>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>主  循  环<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    nav_msgs::Path actual_path;
+    geometry_msgs::PoseStamped actual_pose_stamped;
+    actual_path.header.stamp=ros::Time::now();
+    actual_path.header.frame_id="ground_link";
+    int pathseq=0;
     while (ros::ok()) {
 
         ros::spinOnce();//刷新callback的消息
-
+        cout<<"-------quad_state"<<quad_state<<endl;
         float cur_time = get_ros_time(begin_time_02);  // 当前时间
         switch (quad_state) {
             case 0:
@@ -416,15 +422,21 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                     if(tempcounter>=150)
                     {
                         quad_state=1;
-                        controlcounter=1;
+//                        controlcounter=1;
                         tempcounter=0;
                     }
                 }
                 break;
             case 1:
+                cout<<"-------controlcounter"<<controlcounter<<endl;
                 if(contstaterecieveflag)  //订阅到bvp计算的控制量则flag为true,用于起始时刻,还没算出bvp时
                 {
                     lefnodeindex = controlcounter;
+//                    lefnodeindex = userfulpointcounter;
+//                    if(userfulpointcounter==1)
+//                    {
+//                        temp_controlstatearray_msg=controlstatearray_msg;
+//                    }
                     if (lefnodeindex+1 < controlstatearray_msg.arraylength)
                     {
                         ///compensation
@@ -436,20 +448,33 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                         plane_expected_position.y=controlstatearray_msg.stateYarray[lefnodeindex];
                         pix_controller(cur_time);
 
-                        if (lefnodeindex <= 6)
+//                        if (lefnodeindex < 5)
                         {
                             orientation_target = euler2quaternion(ocpRoll, angle_target.y, angle_target.z);
                             thrust_target = (float) (param.hoverthrust) * thrustforceacc / 9.8;
                         }
+
                     }
                     controlcounter++;
-                    if(controlcounter>=controlstatearray_msg.arraylength ||controlstatearray_msg.arraylength<=10)
+//                    userfulpointcounter++;
+//                    if(controlcounter>=controlstatearray_msg.arraylength ||controlstatearray_msg.arraylength<=10)
+                    if(fabs(plane_expected_position.y-2)<=0.2 && fabs(plane_expected_position.z-2)<=0.2)
                     {
+//                        cout<<"-------userfulpointcounter"<<userfulpointcounter<<"temp_controlstatearray_msg.arraylength"<<temp_controlstatearray_msg.arraylength<<endl;
                         quad_state=2;
                     }
+//                    cout<<"temp_controlstatearray_msg.stateZarray[2]"<<temp_controlstatearray_msg.stateZarray[2]<<"  controlstatearray_msg.stateZarray[2]"<<controlstatearray_msg.stateZarray[2]<<endl;
+
                 } else{
                     pix_controller(cur_time);
                 }
+
+                planned_postwist_msg.pose.pose.position.x=plane_expected_position.x;
+                planned_postwist_msg.pose.pose.position.y=plane_expected_position.y;
+                planned_postwist_msg.pose.pose.position.z=plane_expected_position.z;
+                planned_postwist_msg.pose.pose.orientation.x=ocpRoll;
+                planned_postwist_msg.pose.pose.orientation.w=(float) (param.hoverthrust) * thrustforceacc / 9.8;
+                ROS_INFO_STREAM("Apporaching_thrust_target: "<< thrust_target<<" roll:"<<ocpRoll<<" pitch:"<<angle_target.y<<" yaw:"<<angle_target.z);
                 break;
             case 2:
                 tempCurrentPx=pose_drone_odom.pose.pose.position.x;
@@ -490,13 +515,13 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
 //        {
 //            pix_controller(cur_time);
 //        }
-        cout<<"refpos x y z: "<<plane_expected_position.x<<"   y:"<<plane_expected_position.y<<"  z:"<<plane_expected_position.z<<endl;
+        cout<<"refpos x: "<<plane_expected_position.x<<"   y:"<<plane_expected_position.y<<"  z:"<<plane_expected_position.z<<endl;
 
         if (planeupdateflag && pose_drone_odom.pose.pose.position.z>=0.2)   //订阅到飞机位置则flag为true，发布完相对位置的消息后flag置false
         {
             omegax_ini=min(max(pose_drone_odom.twist.twist.angular.x,-10.0),10.0);
 
-            tau_ini=derivation_omegax.derivation(cur_time,pose_drone_odom.twist.twist.angular.x);
+            tau_ini=derivation_omegax.derivation(pose_drone_odom.twist.twist.angular.x, cur_time);
             tau_ini=min(max((double)tau_ini,-10.0),10.0);
 
             phi_ini=temp_angle.x;
@@ -511,10 +536,6 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
             thrust_ini=thrust_target/param.hoverthrust*9.8;
             thrust_ini=min((double)thrust_ini,19.6);
 
-
-            std::cout << "px_ini:  " << px_ini << "pz_ini:  " << pz_ini << "vx_ini:  " << vx_ini << "vz_ini:  "
-                      << vz_ini << std::endl;//输出,放到py文件中求解
-            cout<<"va_ini:"<<vel_drone.twist.linear.x<<endl;
             current_relativepostwist_msg.pose.pose.position.x = px_ini;
             current_relativepostwist_msg.pose.pose.position.z = pz_ini;
             current_relativepostwist_msg.pose.pose.position.y = py_ini;
@@ -527,6 +548,19 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
             current_relativepostwist_msg.pose.pose.orientation.w=tau_ini;
             current_relativepostwist_msg.header.stamp = pose_drone_odom.header.stamp;
             current_relativepostwist_pub.publish(current_relativepostwist_msg);
+
+            actual_pose_stamped.pose.position.x=px_ini;
+            actual_pose_stamped.pose.position.y=py_ini;
+            actual_pose_stamped.pose.position.z=pz_ini;
+//            actual_pose_stamped.pose.orientation=pose_drone_odom.pose.pose.orientation;
+            actual_pose_stamped.header.stamp=ros::Time::now();
+            actual_pose_stamped.header.frame_id="ground_link";
+//            actual_pose_stamped.header.seq=i;
+            actual_path.poses.push_back(actual_pose_stamped);
+            path_pub.publish(actual_path);
+
+//            std::cout << "py_ini:  " << py_ini << " pz_ini:  " << pz_ini << " phi_ini:  " << phi_ini << " vy_ini:  "
+//                      << vy_ini <<" vz_ini: "<<vz_ini<<" omegax_ini: "<<omegax_ini<<" thrust_ini: "<<thrust_ini<<" tau_ini: "<<tau_ini<<std::endl;//输出,放到py文件中求解
             planeupdateflag = false;
         }
 
@@ -542,7 +576,7 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
 
 
             ///publish thrust & orientation
-            std::cout << "thrust_target: " << thrust_target << std::endl;
+//            std::cout << "thrust_target: " << thrust_target << std::endl;
             target_atti_thrust_msg.header.stamp = ros::Time::now();
             target_atti_thrust_msg.orientation = orientation_target;
             target_atti_thrust_msg.thrust = thrust_target;
@@ -768,7 +802,7 @@ int pix_controller(float cur_time)
     thrust_target  = (float)sqrt(pow(PIDVX.Output,2)+pow(PIDVY.Output,2)+pow(PIDVZ.Output+9.8,2))/9.8*(param.hoverthrust);   //目标推力值
 
 //    std::cout << "PIDVZ.OUTPUT:  " << PIDVZ.Output << std::endl;
-//    std::cout << "thrust_target:  " << thrust_target << std::endl;
+//    std::cout << "thrust_target:  " << thrust_target <<"param.hoverthrust:"<<param.hoverthrust<<std::endl;
 
     return 0;
 }

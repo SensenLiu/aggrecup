@@ -116,6 +116,8 @@ double FILTER::derivation(float data2derivation,float curtime)
         std::vector<std::pair<float, float > > ::iterator derivation_iter = derivation_list.begin();
         derivation_list.erase(derivation_iter);
         derivation_list.push_back(std::make_pair(curtime, data2derivation));
+//        std::cout<<"(derivation_list.back().second-derivation_list.front().second): "<<(derivation_list.back().second-derivation_list.front().second)
+//        <<"  (derivation_list.back().first-derivation_list.front().first): "<<(derivation_list.back().first-derivation_list.front().first)<< std::endl;
         return (derivation_list.back().second-derivation_list.front().second)/(derivation_list.back().first-derivation_list.front().first);
     }
 

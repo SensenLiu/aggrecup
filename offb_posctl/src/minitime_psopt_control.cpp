@@ -13,6 +13,7 @@
 #include <geometry_msgs/TwistStamped.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <nav_msgs/Odometry.h>
+#include <nav_msgs/Path.h>
 #include <mavros_msgs/State.h>
 #include <mavros_msgs/AttitudeTarget.h>
 #include <sensor_msgs/Imu.h>
@@ -88,12 +89,15 @@ Alg  algorithm;
 Sol  solution;
 Prob problem;
 double py0=0,pz0=0.5,phi0=0,vy0=0,vz0=0,omegax0=0,thrust0=9.8,tau0=0;
-double pyf=2,pzf=2,phif=1.57,vyf=0.2*sin(phif),vzf=-0.2*cos(phif),omegaxf=0.0,thrustf=9.8*cos(phif),tauf=0;
+double pyf=2,pzf=2,phif=0.628,vyf=0.2*sin(phif),vzf=-0.2*cos(phif),omegaxf=0.0,thrustf=9.8*cos(phif),tauf=0;
 ////x1=y,x2=z,x3=phi,x4=vy,x5=vz,x6=omega,x7=thrust,x8=tau//
 
-MatrixXd x  ;
-MatrixXd u  ;
-MatrixXd t  ;
+//MatrixXd x  = MatrixXd::Zero(8,pointnumber);
+//MatrixXd u  = MatrixXd::Zero(2,pointnumber);
+//MatrixXd t  = MatrixXd::Zero(1,pointnumber);
+MatrixXd x ;
+MatrixXd u ;
+MatrixXd t ;
 MatrixXd x_refined  = MatrixXd::Zero(8,500);
 
 adouble endpoint_cost(adouble* initial_states, adouble* final_states,
@@ -214,24 +218,32 @@ void linkages( adouble* linkages, adouble* xad, Workspace* workspace)
 void do_process()
 {
     chrono::time_point<chrono::steady_clock> begin_time = chrono::steady_clock::now();
-
     problem.phases(1).bounds.lower.events   	<< py0,  pz0,  phi0,  vy0,  vz0, omegax0, thrust0, tau0, pyf, pzf, phif, vyf,vzf,omegaxf,thrustf,tauf;
     problem.phases(1).bounds.upper.events   	<< py0,  pz0,  phi0,  vy0,  vz0, omegax0, thrust0, tau0, pyf, pzf, phif, vyf,vzf,omegaxf,thrustf,tauf;
 
     problem.phases(1).guess.controls = u;
     problem.phases(1).guess.states = x;
     problem.phases(1).guess.time = t;
-
+    cout<<"py0: "<<py0<<" pz0:"<<pz0<<" phi0:"<<phi0<<" vy0:"<<vy0<<" vz0:"<<vz0<<" omegax0:"<<omegax0<<" thrust0:"<<thrust0<<" tau0: "<<tau0<<endl;
     psopt(solution, problem, algorithm);
     chrono::time_point<chrono::steady_clock> end_time = chrono::steady_clock::now();
     int timeconsumption = chrono::duration_cast<chrono::milliseconds>(end_time - begin_time).count();
     cout << "time consume mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm: " << timeconsumption<< endl;
+//    if(timeconsumption<40)
+//    {
+////        ros::Duration(0.02);
+//    }
 
-    if (solution.error_flag) return;
+    if (solution.error_flag)
+    {
+        cout<<"solution.error_flag: " <<solution.error_flag;
+        return;// return to avoid the action to get solution values as below
+    }
 
-    x = solution.get_states_in_phase(1);
-    u = solution.get_controls_in_phase(1);
-    t = solution.get_time_in_phase(1);
+        x = solution.get_states_in_phase(1);
+        u = solution.get_controls_in_phase(1);
+        t = solution.get_time_in_phase(1);
+        cout<<x<<endl;
 
 }
 
@@ -265,6 +277,7 @@ void interpolation()
             }
         }
     }
+    cout<<"interpolationpoints---:"<<interpolationpoints<<endl;
 }
 
 // rostopic subscribe
@@ -324,15 +337,37 @@ void plane_vel_cb(const geometry_msgs::TwistStamped::ConstPtr &msg){
 
 void relative_postwist_cb(const nav_msgs::Odometry::ConstPtr &msg)
 {
-    px_ini=(*msg).pose.pose.position.x;
-    pz_ini=(*msg).pose.pose.position.z;
-    vx_ini=(*msg).twist.twist.linear.x;
-    vz_ini=(*msg).twist.twist.linear.z;
+    py0=(*msg).pose.pose.position.y;
+    pz0=(*msg).pose.pose.position.z;
+    vy0=(*msg).twist.twist.linear.y;
+    vz0=(*msg).twist.twist.linear.z;
+    phi0=(*msg).pose.pose.orientation.x;
+    omegax0=(*msg).pose.pose.orientation.y;
+    thrust0=(*msg).pose.pose.orientation.z;
+    tau0=(*msg).pose.pose.orientation.w;
     currentupdateflag=true;
 //    std::cout <<"ocpsolveriniconditons-----------px_ini:  " << px_ini <<"   vx_ini:  " << vx_ini<<"  pz_ini:  " << pz_ini <<"   vz_ini:  " << vz_ini<<
 //    "   theta_ini:  " << theta_ini<< "   rate_ini:  " << rate_ini<<std::endl;
 
 }
+
+/**
+ * 将欧拉角转化为四元数
+ * @param roll
+ * @param pitch
+ * @param yaw
+ * @return 返回四元数
+ */
+geometry_msgs::Quaternion euler2quaternion(float roll, float pitch, float yaw)
+{
+    geometry_msgs::Quaternion temp;
+    temp.w = cos(roll/2)*cos(pitch/2)*cos(yaw/2) + sin(roll/2)*sin(pitch/2)*sin(yaw/2);
+    temp.x = sin(roll/2)*cos(pitch/2)*cos(yaw/2) - cos(roll/2)*sin(pitch/2)*sin(yaw/2);
+    temp.y = cos(roll/2)*sin(pitch/2)*cos(yaw/2) + sin(roll/2)*cos(pitch/2)*sin(yaw/2);
+    temp.z = cos(roll/2)*cos(pitch/2)*sin(yaw/2) - sin(roll/2)*sin(pitch/2)*cos(yaw/2);
+    return temp;
+}
+
 int main( int argc, char ** argv)
 {
     ros::init(argc, argv, "minimizetime_control");
@@ -347,6 +382,7 @@ int main( int argc, char ** argv)
 
     ros::Publisher controlstate_pub=nh.advertise<offb_posctl::controlstate>("ocp/control_state",10);
     ros::Publisher planeVel_pub=nh.advertise<geometry_msgs::Vector3>("filteredPlaneVel",10);
+    ros::Publisher path_pub = nh.advertise<nav_msgs::Path>("plannedtrajectory",1, true);
 
 /////////////////////////////////// construct the ocp problem
     problem.name        		        = "minimize time Problem";
@@ -364,8 +400,8 @@ int main( int argc, char ** argv)
     psopt_level2_setup(problem, algorithm);
 
 
-    problem.phases(1).bounds.lower.states   	<<  -1,  0.2,  -1.57, -10, -10,-10,  0,   -10;
-    problem.phases(1).bounds.upper.states   	<<   3,  10,    1.57,  10,  10, 10,  19.6, 10;
+    problem.phases(1).bounds.lower.states   	<<  -1,  0.2,  -1.57, -10, -10,-3,  0,   -10;
+    problem.phases(1).bounds.upper.states   	<<   3,  10,    1.57,  10,  10, 3,  19.6, 10;
 
     problem.phases(1).bounds.lower.controls 	<< -15, -15;
     problem.phases(1).bounds.upper.controls 	<<  15,  15;
@@ -427,8 +463,9 @@ int main( int argc, char ** argv)
     t = solution.get_time_in_phase(1);
     cout<<x<<endl;
 
-
-
+    int loopcounter=0;
+    nav_msgs::Path planned_path;
+    geometry_msgs::PoseStamped planned_pose_stamped;
     while (ros::ok())
     {
         ros::spinOnce();// to examine the queues of the callback functions once
@@ -439,16 +476,23 @@ int main( int argc, char ** argv)
             if(!solution.error_flag)
             {
                 interpolation();
+                cout<<"loopcounter----"<<loopcounter++<<endl;
                 controlstate_msg.discrepointpersecond=controlfreq;
-                controlstate_msg.inicounter=1;// the first value is current state, we should use at least next state
+                controlstate_msg.inicounter=8;// the first value is current state, we should use at least next state
                 controlstate_msg.arraylength=floor(t(0,pointnumber-1)*controlfreq)+1;// becasue the first point's index starts from 0.
-                controlstate_msg.thrustarray.clear();
+                controlstate_msg.thrustarray.clear();// very important:the clear should be corresponed as following pusback items to make sure the array not be larger and larger
                 controlstate_msg.phiarray.clear();
-                controlstate_msg.tauarray.clear();
+                controlstate_msg.thetaarray.clear();
+                controlstate_msg.stateXarray.clear();
                 controlstate_msg.stateYarray.clear();
                 controlstate_msg.stateZarray.clear();
                 controlstate_msg.stateVYarray.clear();
                 controlstate_msg.stateVZarray.clear();
+                controlstate_msg.tauarray.clear();
+
+                planned_path.header.stamp=ros::Time::now();
+                planned_path.header.frame_id="ground_link";
+                planned_path.poses.clear();
                 for(int i=0;i<controlstate_msg.arraylength;i++)
                 {
                     controlstate_msg.thrustarray.push_back(x_refined(6,i));
@@ -460,9 +504,19 @@ int main( int argc, char ** argv)
                     controlstate_msg.stateVYarray.push_back(x_refined(3,i));
                     controlstate_msg.stateVZarray.push_back(x_refined(4,i));
                     controlstate_msg.tauarray.push_back(x_refined(7,i));
+                    orientation_target=euler2quaternion(controlstate_msg.phiarray[i],controlstate_msg.thetaarray[i],0);
+                    planned_pose_stamped.pose.position.x=0;
+                    planned_pose_stamped.pose.position.y=controlstate_msg.stateYarray[i];
+                    planned_pose_stamped.pose.position.z=controlstate_msg.stateZarray[i];
+                    planned_pose_stamped.pose.orientation=orientation_target;
+                    planned_pose_stamped.header.stamp=ros::Time::now();
+                    planned_pose_stamped.header.frame_id="ground_link";
+//                    planned_pose_stamped.header.seq=i;
+                    planned_path.poses.push_back(planned_pose_stamped);
                 }
 //                cout<<"controlstate_msg.arraylength----!!!!:"<<controlstate_msg.arraylength<<"  time:"<<t(0,pointnumber-1)<<endl;
                 controlstate_pub.publish(controlstate_msg);
+                path_pub.publish(planned_path);
 //                cout<<"controlstate_msg.stateXarray[0]-----------fffffff:"<<controlstate_msg.stateYarray[0]<<endl;
             }
             currentupdateflag= false;

@@ -5,8 +5,8 @@
 
     <!--<node pkg="offb_posctl" type="uavinstance.py" name="uavinstance" > </node>-->
     <node pkg="offb_posctl" type="offb_posctl" name="offb_posctl" output="screen"> </node>
-<!--    <node pkg="offb_posctl" type="acado_lag_control" name="acado_lag_control" output="screen"> </node>-->
-    <node pkg="offb_posctl" type="bvp_control.py" name="bvp_control" > </node>
+<!--    <node pkg="offb_posctl" type="minitime_psopt_control" name="minitime_psopt_control" output="screen"> </node>-->
+<!--    <node pkg="offb_posctl" type="bvp_control.py" name="bvp_control" > </node>-->
 <!--    <node pkg="offb_posctl" type="bvp_control_table.py" name="bvp_control_table" > </node>-->
 <!--    <node pkg="offb_posctl" type="bvptest.py" name="bvptest" > </node>-->
 
