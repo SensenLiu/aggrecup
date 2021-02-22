@@ -117,7 +117,7 @@ FILTER derivation_omegax(10);
 float t_end = 3;
 double thrustforceacc = 0.0;
 int pointnumber=150;// the number is almost always 20. It less, the accuracy won't be enough, if more, the time consumpiton will be too large.
-int controlfreq=50;
+int controlfreq=30;
 int discretizedpointpersecond = (int)pointnumber/t_end;
 int controlcounter=0;
 //int controltime = 15; //取的控制序列点数
@@ -475,7 +475,7 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                     if(tempcounter>=150)
                     {
                         quad_state=1;
-//                        controlcounter=1;
+                        controlcounter=1;
                         tempcounter=0;
                     }
                 }
@@ -485,12 +485,14 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                 if(contstaterecieveflag)  //订阅到bvp计算的控制量则flag为true,用于起始时刻,还没算出bvp时
                 {
                     lefnodeindex = controlcounter;
+                    cout<<"-------lefnodeindex"<<lefnodeindex<<endl;
                     if (lefnodeindex+1 < controlstatearray_msg.arraylength)
                     {
 //                        Here,we used lefnodeindex-1, it is because we consider that the pos and vel error is in next state, not in current state
-                        plane_expected_position.z=controlstatearray_msg.stateZarray[lefnodeindex-1];
                         plane_expected_position.x=controlstatearray_msg.stateXarray[lefnodeindex-1];
                         plane_expected_position.y=controlstatearray_msg.stateYarray[lefnodeindex-1];
+                        plane_expected_position.z=controlstatearray_msg.stateZarray[lefnodeindex-1];
+
 
                         plane_expected_velocity.x=controlstatearray_msg.stateVXarray[lefnodeindex-1];
                         plane_expected_velocity.y=controlstatearray_msg.stateVYarray[lefnodeindex-1];
@@ -506,20 +508,21 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                     if((fabs(plane_expected_position.y-2)<=0.2 && fabs(plane_expected_position.z-2)<=0.2))
                     {
                         planstopflag= true;
+                        cout<<"planstopflag---"<<planstopflag<<endl;
                     }
                     if(controlcounter>=controlstatearray_msg.arraylength)
                     {
 //                        cout<<"-------userfulpointcounter"<<userfulpointcounter<<"temp_controlstatearray_msg.arraylength"<<temp_controlstatearray_msg.arraylength<<endl;
                         quad_state=2;
                     }
+                    planned_postwist_msg.pose.pose.orientation.x=-atan(controlstatearray_msg.stateAYarray[lefnodeindex]/(controlstatearray_msg.stateAZarray[lefnodeindex]+9.8));
                 }
                 pix_controller(cur_time);
 
                 planned_postwist_msg.pose.pose.position.x=plane_expected_position.x;
                 planned_postwist_msg.pose.pose.position.y=plane_expected_position.y;
                 planned_postwist_msg.pose.pose.position.z=plane_expected_position.z;
-                planned_postwist_msg.pose.pose.orientation.x=-atan(controlstatearray_msg.stateAYarray[lefnodeindex]/(controlstatearray_msg.stateAZarray[lefnodeindex]+9.8));
-                ROS_INFO_STREAM("Apporaching_thrust_target: "<< thrust_target<<" roll:"<<ocpRoll<<" pitch:"<<angle_target.y<<" yaw:"<<angle_target.z);
+                ROS_INFO_STREAM("Apporaching_thrust_target: "<< thrust_target<<" roll:"<<angle_target.x<<" pitch:"<<angle_target.y<<" yaw:"<<angle_target.z);
                 break;
             case 2:
                 tempCurrentPx=pose_drone_odom.pose.pose.position.x;
@@ -538,9 +541,8 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                 }
                 orientation_target = euler2quaternion(-atan(controlstatearray_msg.stateAYarray[lefnodeindex]/(controlstatearray_msg.stateAZarray[lefnodeindex]+9.8)), 0, angle_target.z);
 //                thrust_target  = param.hoverthrust*cos(controlstatearray_msg.phiarray[controlstatearray_msg.arraylength-1])*cos(controlstatearray_msg.thetaarray[controlstatearray_msg.arraylength-1]);   //目标推力值 to alleviate the gravity's component along the drone's z axis
-                thrust_target  = param.hoverthrust;   //目标推力值,只是用来保证提供扭矩，the drone is easy to fall freely and crash
-                ROS_INFO_STREAM("Duringsuck_thrust_target: "<< thrust_target<<" roll:"<<controlstatearray_msg.phiarray[controlstatearray_msg.arraylength-1]<<" pitch:"<<controlstatearray_msg.thetaarray[controlstatearray_msg.arraylength-1]<<" yaw:"<<angle_target.z);
-                break;
+                thrust_target  = param.hoverthrust-0.1;   //目标推力值,只是用来保证提供扭矩，the drone is easy to fall freely and crash
+                ROS_INFO_STREAM("Duringsuck_thrust_target: "<< thrust_target<<" roll:"<<-atan(controlstatearray_msg.stateAYarray[lefnodeindex]/(controlstatearray_msg.stateAZarray[lefnodeindex]+9.8))<<" pitch:"<<0<<" yaw:"<<angle_target.z);
                 break;
             case 3:
                 plane_expected_position.x=tempCurrentPx;
@@ -573,11 +575,8 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                                           pose_drone_odom.pose.pose.orientation.y,
                                           pose_drone_odom.pose.pose.orientation.z,
                                           pose_drone_odom.pose.pose.orientation.w);//欧拉角
-            rpy.y = temp_angle.y;
-            rpy.x = temp_angle.x;
-            rpy.z = temp_angle.z;
-            plane_rpy_pub.publish(rpy);
-
+            plane_rpy_pub.publish(temp_angle);
+            cout<<"drone_roll--"<<temp_angle.x<<endl;
 
             ///publish thrust & orientation
 //            std::cout << "thrust_target: " << thrust_target << std::endl;
@@ -764,7 +763,7 @@ int pix_controller(float cur_time)
     float error_vx = plane_expected_velocity.x - vel_drone.twist.linear.x;
     float error_vy = plane_expected_velocity.y  - vel_drone.twist.linear.y;
     float error_vz = plane_expected_velocity.z  - vel_drone.twist.linear.z;
-    float acc_vxd = param.vx_d * error_vx;
+    float acc_vxd = param.vx_p * error_vx;
     float acc_vyd = param.vy_p * error_vy;
     float acc_vzd = param.vz_p * error_vz;
 

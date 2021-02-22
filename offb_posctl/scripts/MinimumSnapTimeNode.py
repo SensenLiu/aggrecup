@@ -18,6 +18,7 @@ from geometry_msgs.msg import PoseStamped
 from offb_posctl.msg import controlstate  # 发布自定义消息
 
 phi=1.57
+normspeed=1.0
 ay0=0
 vy0=0
 y0=0
@@ -25,10 +26,10 @@ az0=0
 vz0=0
 z0=0.5
 aytf=-math.sin(phi)*9.8
-vytf=0.2*math.sin(phi)
-ytf=7.0
+vytf=normspeed*math.sin(phi)
+ytf=2.0
 aztf=math.cos(phi)*9.8-9.8
-vztf=-0.2*math.cos(phi)
+vztf=-normspeed*math.cos(phi)
 ztf=2.0
 meshpoint=np.linspace(1, 0.01, 5)
 thrustmax=2*9.8
@@ -148,7 +149,7 @@ def main():
     ub=1000
     mybounds=[(lb,ub),(lb,ub),(lb,ub),(lb,ub),(lb,ub),(lb,ub),(0,10)]
 
-    controlfreq=50
+    controlfreq=30
     controlstate_msg = controlstate()  # 要发布的控制量消息
     planned_path=Path()
     planned_pose_stamped=PoseStamped()
@@ -164,7 +165,7 @@ def main():
     rospy.Subscriber(uav_id + "/mavros/imu/data",
                      TwistStamped, droneImu_callback)  # plane veocity
 
-    pub = rospy.Publisher( uav_id + "bvp_controlstate", controlstate, queue_size=1)
+    pub = rospy.Publisher( uav_id + "ocp/control_state", controlstate, queue_size=1)
     path_pub = rospy.Publisher(uav_id + "plannedtrajectory",Path,queue_size=1)
 
     currentupdateflag=True
@@ -174,55 +175,55 @@ def main():
             result = minimize(J, Initial_guess, method='SLSQP', jac=fast_jac,tol=1e-4, bounds=mybounds,constraints=constraint)
             end = time.time()
             running_time = end - start
-            print('time cost : %.5f sec' % running_time)
-        if result.success:
-            Initial_guess=result.x
-            controlstate_msg.inicounter = 1
-            controlstate_msg.discrepointpersecond = controlfreq
-            controlstate_msg.arraylength = round(result.x[-1]*50)
+            if result.success:
+                print('time cost : %.5f sec' % running_time)
+                Initial_guess=result.x
+                controlstate_msg.inicounter = 10
+                controlstate_msg.discrepointpersecond = controlfreq
+                controlstate_msg.arraylength = round(result.x[-1]*controlfreq)
 
-            times=np.linspace(0, 1, controlstate_msg.arraylength)*result.x[-1]
-            alpha_y=result.x[0]
-            beta_y=result.x[1]
-            gamma_y=result.x[2]
+                times=np.linspace(0, 1, controlstate_msg.arraylength)*result.x[-1]
+                alpha_y=result.x[0]
+                beta_y=result.x[1]
+                gamma_y=result.x[2]
 
-            alpha_z=result.x[3]
-            beta_z=result.x[4]
-            gamma_z=result.x[5]
+                alpha_z=result.x[3]
+                beta_z=result.x[4]
+                gamma_z=result.x[5]
 
-            y=alpha_y/120*times**5+beta_y/24*times**4+gamma_y/6*times**3+ay0/2*times**2+vy0*times+y0
-            vy=alpha_y/24*times**4+beta_y/6*times**3+gamma_y/2*times**2+ay0*times+vy0
-            ay=alpha_y/6*times**3+beta_y/2*times**2+gamma_y*times+ay0
+                y=alpha_y/120*times**5+beta_y/24*times**4+gamma_y/6*times**3+ay0/2*times**2+vy0*times+y0
+                vy=alpha_y/24*times**4+beta_y/6*times**3+gamma_y/2*times**2+ay0*times+vy0
+                ay=alpha_y/6*times**3+beta_y/2*times**2+gamma_y*times+ay0
 
-            z=alpha_z/120*times**5+beta_z/24*times**4+gamma_z/6*times**3+az0/2*times**2+vz0*times+z0
-            vz=alpha_z/24*times**4+beta_z/6*times**3+gamma_z/2*times**2+az0*times+vz0
-            az=alpha_z/6*times**3+beta_z/2*times**2+gamma_z*times+az0
+                z=alpha_z/120*times**5+beta_z/24*times**4+gamma_z/6*times**3+az0/2*times**2+vz0*times+z0
+                vz=alpha_z/24*times**4+beta_z/6*times**3+gamma_z/2*times**2+az0*times+vz0
+                az=alpha_z/6*times**3+beta_z/2*times**2+gamma_z*times+az0
 
-            controlstate_msg.stateXarray = np.zeros_like(times)
-            controlstate_msg.stateYarray = y
-            controlstate_msg.stateZarray = z
-            controlstate_msg.stateVXarray = np.zeros_like(times)
-            controlstate_msg.stateVYarray = vy
-            controlstate_msg.stateVZarray = vz
-            controlstate_msg.stateAXarray = np.zeros_like(times)
-            controlstate_msg.stateAYarray = ay
-            controlstate_msg.stateAZarray = az
+                controlstate_msg.stateXarray = np.zeros_like(times)
+                controlstate_msg.stateYarray = y
+                controlstate_msg.stateZarray = z
+                controlstate_msg.stateVXarray = np.zeros_like(times)
+                controlstate_msg.stateVYarray = vy
+                controlstate_msg.stateVZarray = vz
+                controlstate_msg.stateAXarray = np.zeros_like(times)
+                controlstate_msg.stateAYarray = ay
+                controlstate_msg.stateAZarray = az
 
-            pub.publish(controlstate_msg)
-            # currentupdateflag = False
+                pub.publish(controlstate_msg)
+                currentupdateflag = False
 
-            planned_path.header.stamp=rospy.Time.now()
-            planned_path.header.frame_id="ground_link"
-            planned_path.poses=[]
-            for i in range(0, int(controlstate_msg.arraylength)):
-                planned_pose_stamped.pose.position.x=controlstate_msg.stateXarray[i]
-                planned_pose_stamped.pose.position.y=controlstate_msg.stateYarray[i]
-                planned_pose_stamped.pose.position.z=controlstate_msg.stateZarray[i]
-                planned_pose_stamped.header.stamp=rospy.Time.now()
-                # planned_pose_stamped.header.frame_id="ground_link"
-                planned_pose_stamped.header.seq=i
-                planned_path.poses.append(copy.deepcopy(planned_pose_stamped))
-            path_pub.publish(planned_path)
+                planned_path.header.stamp=rospy.Time.now()
+                planned_path.header.frame_id="ground_link"
+                planned_path.poses=[]
+                for i in range(0, int(controlstate_msg.arraylength)):
+                    planned_pose_stamped.pose.position.x=controlstate_msg.stateXarray[i]
+                    planned_pose_stamped.pose.position.y=controlstate_msg.stateYarray[i]
+                    planned_pose_stamped.pose.position.z=controlstate_msg.stateZarray[i]
+                    planned_pose_stamped.header.stamp=rospy.Time.now()
+                    # planned_pose_stamped.header.frame_id="ground_link"
+                    planned_pose_stamped.header.seq=i
+                    planned_path.poses.append(copy.deepcopy(planned_pose_stamped))
+                path_pub.publish(planned_path)
 
 
     rate.sleep()
