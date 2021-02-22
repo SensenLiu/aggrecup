@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # coding=utf-8
-
+import copy
 import socket
 import numpy as np
 from scipy.optimize import minimize
@@ -13,6 +13,8 @@ import rospy
 
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import TwistStamped
+from nav_msgs.msg import Path
+from geometry_msgs.msg import PoseStamped
 from offb_posctl.msg import controlstate  # 发布自定义消息
 
 phi=1.57
@@ -31,7 +33,7 @@ ztf=2.0
 meshpoint=np.linspace(1, 0.01, 5)
 thrustmax=2*9.8
 angleaccdmax=20
-lbz=0.3
+lbz=0.2
 ubz=2.5
 lbv=-5
 ubv=5
@@ -148,6 +150,8 @@ def main():
 
     controlfreq=50
     controlstate_msg = controlstate()  # 要发布的控制量消息
+    planned_path=Path()
+    planned_pose_stamped=PoseStamped()
 
     rospy.init_node('minimumsnap_control', anonymous=True)
     uav_id = rospy.get_param("~id", "")
@@ -160,7 +164,9 @@ def main():
     rospy.Subscriber(uav_id + "/mavros/imu/data",
                      TwistStamped, droneImu_callback)  # plane veocity
 
-    pub = rospy.Publisher( uav_id + "bvp_controlstate", controlstate, queue_size=10)
+    pub = rospy.Publisher( uav_id + "bvp_controlstate", controlstate, queue_size=1)
+    path_pub = rospy.Publisher(uav_id + "plannedtrajectory",Path,queue_size=1)
+
     currentupdateflag=True
     while not (rospy.is_shutdown()):
         if currentupdateflag:
@@ -203,8 +209,23 @@ def main():
             controlstate_msg.stateAZarray = az
 
             pub.publish(controlstate_msg)
-            currentupdateflag = False
-        rate.sleep()
+            # currentupdateflag = False
+
+            planned_path.header.stamp=rospy.Time.now()
+            planned_path.header.frame_id="ground_link"
+            planned_path.poses=[]
+            for i in range(0, int(controlstate_msg.arraylength)):
+                planned_pose_stamped.pose.position.x=controlstate_msg.stateXarray[i]
+                planned_pose_stamped.pose.position.y=controlstate_msg.stateYarray[i]
+                planned_pose_stamped.pose.position.z=controlstate_msg.stateZarray[i]
+                planned_pose_stamped.header.stamp=rospy.Time.now()
+                # planned_pose_stamped.header.frame_id="ground_link"
+                planned_pose_stamped.header.seq=i
+                planned_path.poses.append(copy.deepcopy(planned_pose_stamped))
+            path_pub.publish(planned_path)
+
+
+    rate.sleep()
     # times=np.linspace(0,1,100)*result.x[-1]
     #
     # alpha_y=result.x[0]
