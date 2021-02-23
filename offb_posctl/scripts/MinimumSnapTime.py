@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # coding=utf-8
-
 import socket
 import numpy as np
 from scipy.optimize import minimize
@@ -12,27 +11,29 @@ import math
 import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
+import scipy
+print(np.__version__)
 
 ## core part 0 <<<<
 # ay0 vy0 y0 az0 vz0 z0 aytf vytf ytf aztf vztf ztf meshpoint thrustmax angleaccdmax lbz lbv ubv
-
 phi=1.57
+normspeed=1.0
 ay0=0
-vy0=0 
+vy0=0
 y0=0
 az0=0
 vz0=0
 z0=0.5
 aytf=-math.sin(phi)*9.8
-vytf=0.2*math.sin(phi)
-ytf=7.0
-aztf=math.cos(phi)*9.8-9.8 
-vztf=-0.2*math.cos(phi) 
+vytf=normspeed*math.sin(phi)
+ytf=2.0
+aztf=math.cos(phi)*9.8-9.8
+vztf=-normspeed*math.cos(phi)
 ztf=2.0
 meshpoint=np.linspace(1,0.01,5)
 thrustmax=2*9.8
 angleaccdmax=20
-lbz=0.3
+lbz=0.2
 lbv=-5
 ubv=5
 
@@ -46,7 +47,7 @@ def J(x):
 def fast_jac(x):
     jac = np.zeros_like(x)
     jac[-1]=1
-    print("jac:",jac)
+    # print("jac:",jac)
     return jac
 
 
@@ -73,7 +74,7 @@ def eqmycon(x):
     # print("0000:", np.vstack((ceq1,ceq2,ceq3,ceq4,ceq5,ceq6)).shape)
     # print("aztf--------", aztf)
     # print("2222:",np.hstack((ceq1,ceq2,ceq3,ceq4,ceq5,ceq6)))
-    print("3333:",np.vstack((ceq1,ceq2,ceq3,ceq4,ceq5,ceq6)).ravel())
+    # print("3333:",np.vstack((ceq1,ceq2,ceq3,ceq4,ceq5,ceq6)).ravel())
     # return np.hstack((ceq1,ceq2,ceq3,ceq4,ceq5,ceq6))
     #ravel() is used to decrease the dimenions of the array, so the float64[:] may be able to be use. However, it is useless
     return np.hstack((ceq1,ceq2,ceq3,ceq4,ceq5,ceq6)).ravel()
@@ -137,7 +138,7 @@ def main():
 
     constraint = [dict(type='eq', fun=eqmycon), dict(type='ineq', fun=ineqmycon)]
 
-    Initial_guess=np.array([0,0,0,0,0,0,5]).ravel()
+    Initial_guess=np.array([0.0,0.0,0.0,0.0,0.0,0.0,5.0]).ravel()
     lb=-1000
     ub=1000
     mybounds=[(lb,ub),(lb,ub),(lb,ub),(lb,ub),(lb,ub),(lb,ub),(0,10)]

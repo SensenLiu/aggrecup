@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # coding=utf-8
+from __future__ import division
 import copy
 import socket
 import numpy as np
@@ -10,6 +11,9 @@ import datetime
 import math
 import matplotlib.pyplot as plt
 import rospy
+# import scipy
+# print(scipy.__version__)
+
 
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import TwistStamped
