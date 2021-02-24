@@ -16,7 +16,7 @@ print(np.__version__)
 
 ## core part 0 <<<<
 # ay0 vy0 y0 az0 vz0 z0 aytf vytf ytf aztf vztf ztf meshpoint thrustmax angleaccdmax lbz lbv ubv
-phi=1.57
+phi=0.628
 normspeed=1.0
 ay0=0
 vy0=0
@@ -32,7 +32,7 @@ vztf=-normspeed*math.cos(phi)
 ztf=2.0
 meshpoint=np.linspace(1,0.01,5)
 thrustmax=2*9.8
-angleaccdmax=20
+angleaccdmax=25
 lbz=0.2
 lbv=-5
 ubv=5
@@ -149,64 +149,64 @@ def main():
     running_time = end - start
     print('time cost : %.5f sec' % running_time)
     print(result)
-    # times=np.linspace(0,1,100)*result.x[-1]
-    #
-    # alpha_y=result.x[0]
-    # beta_y=result.x[1]
-    # gamma_y=result.x[2]
-    #
-    # alpha_z=result.x[3]
-    # beta_z=result.x[4]
-    # gamma_z=result.x[5]
-    #
-    # y=alpha_y/120*times**5+beta_y/24*times**4+gamma_y/6*times**3+ay0/2*times**2+vy0*times+y0
-    # vy=alpha_y/24*times**4+beta_y/6*times**3+gamma_y/2*times**2+ay0*times+vy0
-    # ay=alpha_y/6*times**3+beta_y/2*times**2+gamma_y*times+ay0
-    #
-    #
-    # z=alpha_z/120*times**5+beta_z/24*times**4+gamma_z/6*times**3+az0/2*times**2+vz0*times+z0
-    # vz=alpha_z/24*times**4+beta_z/6*times**3+gamma_z/2*times**2+az0*times+vz0
-    # az=alpha_z/6*times**3+beta_z/2*times**2+gamma_z*times+az0
-    # a=np.sqrt(az**2+ay**2)
-    # thurst=np.sqrt((az+9.8)**2+ay**2)
-    # phiseries=-np.arctan(ay/(az+9.8))
-    # # print("az--------", az)
-    # angleacc=np.zeros_like(times)
-    # for i in range(len(times)):
-    #     t=times[i]
-    #     angleacc[i]=((((alpha_y*t**2)/2 + beta_y*t + gamma_y)/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5) - (((alpha_z*t**2)/2 + beta_z*t + gamma_z)*((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0))/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2)*((2*((alpha_y*t**2)/2 + beta_y*t + gamma_y)*((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0))/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2 - (2*((alpha_z*t**2)/2 + beta_z*t + gamma_z)*((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0)**2)/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**3))/(((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0)**2/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2 + 1)**2 - ((beta_y + alpha_y*t)/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5) - ((beta_z + alpha_z*t)*((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0))/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2 - (2*((alpha_y*t**2)/2 + beta_y*t + gamma_y)*((alpha_z*t**2)/2 + beta_z*t + gamma_z))/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2 + (2*((alpha_z*t**2)/2 + beta_z*t + gamma_z)**2*((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0))/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**3)/(((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0)**2/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2 + 1)
-    #
-    # F1=angleacc*thrustmax/(4*angleaccdmax)+thurst/2
-    # F2=-angleacc*thrustmax/(4*angleaccdmax)+thurst/2
-    #
-    # plotlinewidth = 2
-    # plotfontsize = 16
-    # plt.subplot(2,2,1)
-    # plt.plot(times,y, color='blue',LineWidth=plotlinewidth,label="y")
-    # plt.plot(times,vy, color='green',LineWidth=plotlinewidth,label="vy")
-    # plt.plot(times,ay, color='black', LineWidth=plotlinewidth,label="ay")
-    # plt.plot(times,phiseries, color='yellow',LineWidth=plotlinewidth,label="phi")
-    # plt.legend(loc="best")
-    #
-    # plt.subplot(2,2,2)
-    # plt.plot(times,z, color='blue',LineWidth=plotlinewidth,label="z")
-    # plt.plot(times,vz, color='green',LineWidth=plotlinewidth,label="vz")
-    # plt.plot(times,az, color='black', LineWidth=plotlinewidth,label="az")
-    # plt.plot(times,thurst, color='yellow',LineWidth=plotlinewidth,label="thurst")
-    # plt.legend(loc="best")
-    #
-    # plt.subplot(2,2,3)
-    # plt.plot(-y,z, color='blue',LineWidth=plotlinewidth,label="y-z")
-    # plt.legend(loc="best")
-    #
-    # plt.subplot(2,2,4)
-    # plt.plot(times,F1, color='blue',LineWidth=plotlinewidth,label="F1")
-    # plt.plot(times,F2, color='black', LineWidth=plotlinewidth,label="F2")
-    # plt.legend(loc="best")
-    #
-    # # print(res)
-    # # core calculate code
-    # plt.show()
+    times=np.linspace(0,1,100)*result.x[-1]
+
+    alpha_y=result.x[0]
+    beta_y=result.x[1]
+    gamma_y=result.x[2]
+
+    alpha_z=result.x[3]
+    beta_z=result.x[4]
+    gamma_z=result.x[5]
+
+    y=alpha_y/120*times**5+beta_y/24*times**4+gamma_y/6*times**3+ay0/2*times**2+vy0*times+y0
+    vy=alpha_y/24*times**4+beta_y/6*times**3+gamma_y/2*times**2+ay0*times+vy0
+    ay=alpha_y/6*times**3+beta_y/2*times**2+gamma_y*times+ay0
+
+
+    z=alpha_z/120*times**5+beta_z/24*times**4+gamma_z/6*times**3+az0/2*times**2+vz0*times+z0
+    vz=alpha_z/24*times**4+beta_z/6*times**3+gamma_z/2*times**2+az0*times+vz0
+    az=alpha_z/6*times**3+beta_z/2*times**2+gamma_z*times+az0
+    a=np.sqrt(az**2+ay**2)
+    thurst=np.sqrt((az+9.8)**2+ay**2)
+    phiseries=-np.arctan(ay/(az+9.8))
+    # print("az--------", az)
+    angleacc=np.zeros_like(times)
+    for i in range(len(times)):
+        t=times[i]
+        angleacc[i]=((((alpha_y*t**2)/2 + beta_y*t + gamma_y)/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5) - (((alpha_z*t**2)/2 + beta_z*t + gamma_z)*((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0))/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2)*((2*((alpha_y*t**2)/2 + beta_y*t + gamma_y)*((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0))/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2 - (2*((alpha_z*t**2)/2 + beta_z*t + gamma_z)*((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0)**2)/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**3))/(((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0)**2/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2 + 1)**2 - ((beta_y + alpha_y*t)/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5) - ((beta_z + alpha_z*t)*((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0))/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2 - (2*((alpha_y*t**2)/2 + beta_y*t + gamma_y)*((alpha_z*t**2)/2 + beta_z*t + gamma_z))/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2 + (2*((alpha_z*t**2)/2 + beta_z*t + gamma_z)**2*((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0))/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**3)/(((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0)**2/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2 + 1)
+
+    F1=angleacc*thrustmax/(4*angleaccdmax)+thurst/2
+    F2=-angleacc*thrustmax/(4*angleaccdmax)+thurst/2
+
+    plotlinewidth = 2
+    plotfontsize = 16
+    plt.subplot(2,2,1)
+    plt.plot(times,y, color='blue',LineWidth=plotlinewidth,label="y")
+    plt.plot(times,vy, color='green',LineWidth=plotlinewidth,label="vy")
+    plt.plot(times,ay, color='black', LineWidth=plotlinewidth,label="ay")
+    plt.plot(times,phiseries, color='yellow',LineWidth=plotlinewidth,label="phi")
+    plt.legend(loc="best")
+
+    plt.subplot(2,2,2)
+    plt.plot(times,z, color='blue',LineWidth=plotlinewidth,label="z")
+    plt.plot(times,vz, color='green',LineWidth=plotlinewidth,label="vz")
+    plt.plot(times,az, color='black', LineWidth=plotlinewidth,label="az")
+    plt.plot(times,thurst, color='yellow',LineWidth=plotlinewidth,label="thurst")
+    plt.legend(loc="best")
+
+    plt.subplot(2,2,3)
+    plt.plot(-y,z, color='blue',LineWidth=plotlinewidth,label="y-z")
+    plt.legend(loc="best")
+
+    plt.subplot(2,2,4)
+    plt.plot(times,F1, color='blue',LineWidth=plotlinewidth,label="F1")
+    plt.plot(times,F2, color='black', LineWidth=plotlinewidth,label="F2")
+    plt.legend(loc="best")
+
+    # print(res)
+    # core calculate code
+    plt.show()
 
 
 if __name__ == '__main__':  # 主函数
