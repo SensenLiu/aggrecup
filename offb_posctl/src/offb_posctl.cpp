@@ -508,11 +508,11 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                     if((fabs(plane_expected_position.y-2)<=0.2 && fabs(plane_expected_position.z-2)<=0.2))
                     {
                         planstopflag= true;
-                        cout<<"planstopflag---"<<planstopflag<<endl;
+                        ROS_ERROR_STREAM( "plane_expected_position.y"<<plane_expected_position.y<<"plane_expected_position.z"<<plane_expected_position.z<<"arraylength:"<<controlstatearray_msg.arraylength);
                     }
                     if(controlcounter>=controlstatearray_msg.arraylength)
                     {
-//                        cout<<"-------userfulpointcounter"<<userfulpointcounter<<"temp_controlstatearray_msg.arraylength"<<temp_controlstatearray_msg.arraylength<<endl;
+                        ROS_ERROR_STREAM( "plane_expected_position.y"<<plane_expected_position.y<<"plane_expected_position.z"<<plane_expected_position.z);
                         quad_state=2;
                     }
                     planned_postwist_msg.pose.pose.orientation.x=-atan(controlstatearray_msg.stateAYarray[lefnodeindex]/(controlstatearray_msg.stateAZarray[lefnodeindex]+9.8));
