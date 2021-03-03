@@ -20,7 +20,7 @@ from geometry_msgs.msg import PoseStamped
 from offb_posctl.msg import controlstate
 from pyquaternion import Quaternion
 # print(offb_posctl.__file__)
-phi=1.57
+phi=1.4
 normspeed=1
 ay0=0
 vy0=0
@@ -48,6 +48,8 @@ ubz=2.5
 lbv=-5
 ubv=5
 currentupdateflag = False
+Init_guess=0.1
+increaseratio=1.5
 
 # Constraint
 def ineqmycon(x):
@@ -108,8 +110,8 @@ def pos_twist_callback(data):
     z0 = data.pose.pose.position.z
     vy0 = data.twist.twist.linear.y
     vz0 = data.twist.twist.linear.z
-    # ay0=data.pose.pose.orientation.y
-    # az0=data.pose.pose.orientation.z
+    ay0=data.twist.twist.angular.y
+    az0=data.twist.twist.angular.z
     # print(ay0)
     currentupdateflag = True
 
@@ -120,14 +122,14 @@ def droneImu_callback(data):
     # az0 = data.linear_acceleration.z-9.8
     qcurrent = Quaternion(data.orientation.w, data.orientation.x, data.orientation.y, data.orientation.z)
     qaccinworld=(qcurrent.inverse).rotate(Quaternion(vector=[data.linear_acceleration.x,data.linear_acceleration.y,data.linear_acceleration.z]))
-    ay0=0.2*min(max(qaccinworld.y,-2*9.8),2*9.8)+0.8*ay0
-    az0=0.2*min(max(qaccinworld.z-9.8,-9.8),9.8)+0.8*az0
+    # ay0=0.2*min(max(qaccinworld.y,-2*9.8),2*9.8)+0.8*ay0
+    # az0=0.2*min(max(qaccinworld.z-9.8,-9.8),9.8)+0.8*az0
     # ay0=0
     # az0=0
     # print ("ay0",ay0)
 
 def main():
-    global currentupdateflag
+    global currentupdateflag, Init_guess,increaseratio
     controlfreq=30
     controlstate_msg = controlstate()  # 要发布的控制量消息
     planned_path=Path()
@@ -151,14 +153,13 @@ def main():
 
     currentupdateflag=True
     # currentupdateflag=False
-    Init_guess,searchstep,uppertime,leftnode,rightnode,solveflag=0.1, 1, 20, 0.1, 20, False
+    searchstep,leftnode,rightnode,solveflag=1, 0.1, 10, False
     while not (rospy.is_shutdown()):
         if currentupdateflag:
             Init_guess=leftnode*0.5
-            Init_guess=0.8003906249999999
             leftnode=Init_guess
-            rightnode=20
-            searchstep=0.2
+            rightnode=rightnode*increaseratio
+            searchstep=max((rightnode-leftnode)/5, 0.01)
             start = time.time()
 
             while rightnode-leftnode>0.2 or solveflag==False:
@@ -166,29 +167,52 @@ def main():
                 # print("solveflag,leftnode",solveflag,leftnode)
                 if solveflag==True:
                     rightnode=leftnode
-                    leftnode=max(rightnode-searchstep,leftnode)
-                    searchstep=max(searchstep/2,0.1)
+                    leftnode=max(rightnode-searchstep,Init_guess)
+                    while(rightnode-leftnode>0.1):# once the feasible rightnode is found, the two separated method will be used to find the minimum feasbile solve
+                        if ineqmycon((leftnode+rightnode)/2.0)==False:
+                            leftnode=(leftnode+rightnode)/2.0
+                        else:
+                            rightnode=(leftnode+rightnode)/2.0
                 else:
                     if leftnode>=rightnode:
                         leftnode=max(Init_guess,0.1)
-                        searchstep=max(searchstep/2,0.1)
+                        searchstep=max(searchstep/2,0.01)
                     leftnode=leftnode+searchstep
                 # print("searchstep--",searchstep)
                 if time.time()-start>=0.2:
                     print("Init_guess, y0,vy0,ay0,z0,vz0,az0",Init_guess,y0,vy0,ay0,z0,vz0,az0)
                     Init_guess=0.1
+                    rightnode=rightnode/increaseratio # to avoid rightnode increase by multiply 1.5 many times in rightnode=rightnode*1.5
                     leftnode=0.1
                     print ("can not solve")
                     break
+            # resetcounter=0
+            # Init_guess=Init_guess*0.5
+            # solveflag=ineqmycon(Init_guess)
+            # while(solveflag==False):
+            #     Init_guess=Init_guess+0.01
+            #     solveflag=ineqmycon(Init_guess)
+            #     if(Init_guess>=10):
+            #         if(resetcounter==0):
+            #             Init_guess=0.1
+            #             resetcounter=1
+            #         else:
+            #             print("can not solve")
+            #             break
+
             running_time = time.time() - start
             if solveflag:
-                # print('time cost : %.5f sec' % running_time,'terminate cost : %.2f sec' % rightnode, "Init_guess, y0,vy0,ay0,z0,vz0,az0",Init_guess,y0,vy0,ay0,z0,vz0,az0)
                 print('time cost : %.5f sec' % running_time,'terminate cost : %.2f sec' % rightnode)
+                # print('time cost : %.5f sec' % running_time,'leftnode cost : %.5f sec' % leftnode, 'right cost : %.5f sec' %rightnode,"y0,vy0,ay0,z0,vz0,az0",y0,vy0,ay0,z0,vz0,az0)
+                # print('time cost : %.5f sec' % running_time,'terminate cost : %.5f sec' % Init_guess,"y0,vy0,ay0,z0,vz0,az0 ",y0,vy0,ay0,z0,vz0,az0)
                 t=rightnode
-                # print("Terminate time",t)
+                # t=Init_guess
+                if(t<=1):
+                    increaseratio=1
+
                 controlstate_msg.discrepointpersecond = controlfreq
                 controlstate_msg.arraylength = round(t*controlfreq)
-                controlstate_msg.inicounter = (int)(min(5,controlstate_msg.arraylength))
+                controlstate_msg.inicounter = (int)(min(2,controlstate_msg.arraylength))
 
                 times=np.linspace(0, 1, controlstate_msg.arraylength)*t
                 tarray=np.array([[60/t**3,-360/t**4,720/t**5],[-24/t**2,168/t**3,-360/t**4],[3/t,-24/t**2,60/t**3]])

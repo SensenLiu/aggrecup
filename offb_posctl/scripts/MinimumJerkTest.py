@@ -16,24 +16,25 @@ print(np.__version__)
 
 ## core part 0 <<<<
 # ay0 vy0 y0 az0 vz0 z0 aytf vytf ytf aztf vztf ztf meshpoint thrustmax angleaccdmax lbz lbv ubv
-phi=1.57
-normspeed=1.0
-ay0=0
-vy0=0
-y0=0
-az0=0
-vz0=0
-z0=0.5
+phi=1
+normspeed=1
+ay0= -1.1054426431655884
+vy0= 1.4444246292114258
+y0= 1.6978747844696045
+az0=0.008813784457743168
+vz0= -0
+z0= 2.076132297515869
 aytf=-math.sin(phi)*9.8
 vytf=normspeed*math.sin(phi)
 ytf=2.0
 aztf=math.cos(phi)*9.8-9.8
 vztf=-normspeed*math.cos(phi)
 ztf=2.0
-meshpoint=np.linspace(1,0.01,20)
+meshpoint=np.linspace(1, 0.01, 20)
 thrustmax=2*9.8
 angleaccdmax=25
 lbz=0.2
+ubz=2.5
 lbv=-5
 ubv=5
 
@@ -115,8 +116,10 @@ def ineqmycon(x):
     # print("c1----",c1.shape)
     # z's lower bound  constraints
     c2=-lbz+(alpha_z/120*tmesh**5+beta_z/24*tmesh**4+gamma_z/6*tmesh**3+az0/2*tmesh**2+vz0*tmesh+z0)
+    c14=ubz-(alpha_z/120*tmesh**5+beta_z/24*tmesh**4+gamma_z/6*tmesh**3+az0/2*tmesh**2+vz0*tmesh+z0)
 
-    # actuator constraints
+
+# actuator constraints
     c3=angleacc*thrustmax/(4*angleaccdmax)-thrust/2+9.8
     c4=-angleacc*thrustmax/(4*angleaccdmax)+thrust/2
     c5=-angleacc*thrustmax/(4*angleaccdmax)-thrust/2+9.8
@@ -141,7 +144,7 @@ def ineqmycon(x):
     c13=-(lbv-(alpha_z/24*tmesh**4+beta_z/6*tmesh**3+gamma_z/2*tmesh**2+az0*tmesh+vz0))
     # print("--------", t,np.hstack((c0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13)))
     # print("--------", (np.hstack((c0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13))>0).all())
-    return (np.hstack((c0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13))>-0.1).all()
+    return (np.hstack((c0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14))>-0.05).all()
 
 def main():
 
@@ -151,9 +154,8 @@ def main():
     start = time.time()
     start0=time.time()
     resetcounter=0
-    # result = minimize(J, Initial_guess, method='SLSQP', jac=fast_jac,tol=1e-4, bounds=mybounds,constraints=constraint)
     while (ineqmycon(Initial_guess)==False):
-        Initial_guess=Initial_guess+0.2
+        Initial_guess=Initial_guess+0.01
         # print(ineqmycon(Initial_guess))
         end = time.time()
         if((end-start)>0.5):
@@ -167,7 +169,9 @@ def main():
 
     running_time = end - start0
     print('time cost : %.5f sec' % running_time)
-    print(Initial_guess[0])
+    print(Initial_guess[0], ineqmycon(Initial_guess))
+    Initial_guess[0]=1.52
+    print(Initial_guess[0], ineqmycon(Initial_guess))
     times=np.linspace(0,1,100)*Initial_guess
 
     t=Initial_guess[0]

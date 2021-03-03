@@ -22,7 +22,7 @@ from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped
 from offb_posctl.msg import controlstate  # 发布自定义消息
 
-phi=0.314
+phi=1
 normspeed=1.0
 ay0=0
 vy0=0
@@ -192,7 +192,7 @@ def main():
             end = time.time()
             running_time = end - start
             if result.success:
-                print('time cost : %.5f sec' % running_time)
+                print('time cost : %.5f sec' % running_time, 'terminate time : %.5f sec' % result.x[-1])
                 Initial_guess=result.x
                 controlstate_msg.inicounter = 5
                 controlstate_msg.discrepointpersecond = controlfreq
