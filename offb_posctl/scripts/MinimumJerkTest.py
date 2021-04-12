@@ -18,12 +18,12 @@ print(np.__version__)
 # ay0 vy0 y0 az0 vz0 z0 aytf vytf ytf aztf vztf ztf meshpoint thrustmax angleaccdmax lbz lbv ubv
 phi=1
 normspeed=1
-ay0= -1.1054426431655884
-vy0= 1.4444246292114258
-y0= 1.6978747844696045
-az0=0.008813784457743168
-vz0= -0
-z0= 2.076132297515869
+ay0= 0
+vy0= 0
+y0=0
+az0=0
+vz0= 0
+z0= 0.5
 aytf=-math.sin(phi)*9.8
 vytf=normspeed*math.sin(phi)
 ytf=2.0
@@ -170,9 +170,9 @@ def main():
     running_time = end - start0
     print('time cost : %.5f sec' % running_time)
     print(Initial_guess[0], ineqmycon(Initial_guess))
-    Initial_guess[0]=1.52
+    Initial_guess[0]=6
     print(Initial_guess[0], ineqmycon(Initial_guess))
-    times=np.linspace(0,1,100)*Initial_guess
+    times=np.linspace(0,1,100)*Initial_guess[0]
 
     t=Initial_guess[0]
     tarray=np.array([[60/t**3,-360/t**4,720/t**5],[-24/t**2,168/t**3,-360/t**4],[3/t,-24/t**2,60/t**3]])

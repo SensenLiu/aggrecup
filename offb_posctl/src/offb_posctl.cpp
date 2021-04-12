@@ -501,7 +501,7 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                 {
                     lefnodeindex = controlcounter;
                     cout<<"-------lefnodeindex"<<lefnodeindex<<endl;
-                    if (lefnodeindex+1 < controlstatearray_msg.arraylength)
+                    if (lefnodeindex < controlstatearray_msg.arraylength)
                     {
 //                        Here,we used lefnodeindex-1, it is because we consider that the pos and vel error is in next state, not in current state
                         plane_expected_position.x=controlstatearray_msg.stateXarray[lefnodeindex];
@@ -537,6 +537,9 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                 planned_postwist_msg.pose.pose.position.x=plane_expected_position.x;
                 planned_postwist_msg.pose.pose.position.y=plane_expected_position.y;
                 planned_postwist_msg.pose.pose.position.z=plane_expected_position.z;
+                planned_postwist_msg.pose.pose.orientation.x=angle_target.x;
+                planned_postwist_msg.twist.twist.angular.y=plane_expected_acceleration.y;
+                planned_postwist_msg.twist.twist.angular.z=plane_expected_acceleration.z;
                 ROS_INFO_STREAM("Apporaching_thrust_target: "<< thrust_target<<" roll:"<<angle_target.x<<" pitch:"<<angle_target.y<<" yaw:"<<angle_target.z);
                 break;
             case 2:
@@ -659,106 +662,6 @@ Vector3d vectorElementMultiply(Vector3d v1, Vector3d v2)
     Vector3d result;
     result << v1(0)*v2(0), v1(1)*v2(1), v1(2)*v2(2);
     return result;
-}
-
-void tractor_controller(float time)
-{
-    static Vector3d z_w_norm(0, 0, 1.0);
-    Vector3d p_error;
-    Vector3d v_error;
-    Vector3d planned_a;
-    switch (controlmode)
-    {
-        case 0 :{
-            p_error << (planned_postwist_msg.pose.pose.position.x - px_ini), (pose_car_odom.pose.pose.position.y-py_ini), (planned_postwist_msg.pose.pose.position.z-pz_ini);
-            v_error << (planned_postwist_msg.twist.twist.linear.x - vx_ini), (pose_car_odom.twist.twist.linear.y-vy_ini), (planned_postwist_msg.twist.twist.linear.z-vz_ini);
-            planned_a << sin(ocpPitch)*thrustforceacc, 0, thrustforceacc-9.8;
-            break;
-        }
-        case 1 :{
-            p_error << (planned_postwist_msg.pose.pose.position.x - px_ini), (pose_car_odom.pose.pose.position.y-py_ini), (planned_postwist_msg.pose.pose.position.z-pz_ini);
-            v_error << (planned_postwist_msg.twist.twist.linear.x - vx_ini), (pose_car_odom.twist.twist.linear.y-vy_ini), (planned_postwist_msg.twist.twist.linear.z-vz_ini);
-            planned_a << -amp*sinrate*sinrate*sin(sinrate*time), 0, 0;
-            break;
-        }
-    }
-
-    static Vector3d p_error_last;
-    static Vector3d v_error_last;
-    static Vector3d p_error_accumulate;
-    static Vector3d v_error_accumulate;
-    static bool if_init = true;
-    static Vector3d position_error_p(param.txp_p,param.typ_p,param.tzp_p);
-    static Vector3d position_error_d(param.txp_d,param.typ_d,param.tzp_d);
-    static Vector3d position_error_i(param.txp_i,param.typ_i,param.tzp_i);
-    static Vector3d velocity_error_p(param.txv_p,param.tyv_p,param.tzv_p);
-    static Vector3d velocity_error_d(param.txv_d,param.tyv_d,param.tzv_d);
-    static Vector3d velocity_error_i(param.txv_i,param.tyv_i,param.tzv_i);
-
-    if(if_init){
-        if_init = false;
-        p_error_last = p_error;
-        v_error_last = v_error;
-        p_error_accumulate = p_error;
-        v_error_accumulate = v_error;
-        return;
-    }
-
-    /**Core code**/
-    Vector3d delt_p_error = p_error - p_error_last;
-    Vector3d delt_v_error = v_error - v_error_last;
-
-    p_error_accumulate += p_error;
-    v_error_accumulate += v_error;
-    vector3dLimit(p_error_accumulate, 0.6);
-    vector3dLimit(v_error_accumulate, 0.5);
-
-    Vector3d a_fb =   /// PID
-            vectorElementMultiply(p_error, position_error_p) + vectorElementMultiply(v_error, velocity_error_p) +
-            vectorElementMultiply(delt_p_error, position_error_d) + vectorElementMultiply(delt_v_error, velocity_error_d) +
-            vectorElementMultiply(p_error_accumulate, position_error_i) + vectorElementMultiply(v_error_accumulate, velocity_error_i);
-
-    ax=a_fb(0);
-    az=a_fb(2);
-    ay=a_fb(1);
-    axp=(vectorElementMultiply(p_error, position_error_p)+vectorElementMultiply(delt_p_error, position_error_d)+vectorElementMultiply(p_error_accumulate, position_error_i))(0);
-    azp=(vectorElementMultiply(p_error, position_error_p)+vectorElementMultiply(delt_p_error, position_error_d)+vectorElementMultiply(p_error_accumulate, position_error_i))(2);
-    ayp=(vectorElementMultiply(p_error, position_error_p)+vectorElementMultiply(delt_p_error, position_error_d)+vectorElementMultiply(p_error_accumulate, position_error_i))(1);
-    axv=(vectorElementMultiply(v_error, velocity_error_p)+vectorElementMultiply(delt_v_error, velocity_error_d)+ vectorElementMultiply(v_error_accumulate, velocity_error_i))(0);
-    azv=(vectorElementMultiply(v_error, velocity_error_p)+vectorElementMultiply(delt_v_error, velocity_error_d)+ vectorElementMultiply(v_error_accumulate, velocity_error_i))(2);
-    ayv=(vectorElementMultiply(v_error, velocity_error_p)+vectorElementMultiply(delt_v_error, velocity_error_d)+ vectorElementMultiply(v_error_accumulate, velocity_error_i))(1);
-
-    p_error_last = p_error;
-    v_error_last = v_error;
-
-
-    Vector3d a_des = a_fb + planned_a + 9.8 * z_w_norm;
-    Vector3d att_des_norm = a_des / a_des.norm();
-    ///quaternion way to determine attitude
-//    Quaterniond att_des_q = Quaterniond::FromTwoVectors(z_w_norm, att_des_norm);
-//    //add yaw
-//    Quaterniond yaw_quat(cos(0/2.0), att_des_norm(0)*sin(0/2.0),
-//                         att_des_norm(1)*sin(0/2.0),att_des_norm(2)*sin(0/2.0));
-//    att_des_q = yaw_quat * att_des_q;
-//
-//    //Calculate thrust
-//    orientation_target.x = att_des_q.x();
-//    orientation_target.y = att_des_q.y();
-//    orientation_target.z = att_des_q.z();
-//    orientation_target.w = att_des_q.w();
-    ///quaternion way to determine attitude
-
-    angle_target.x = asin(-a_des(1)/a_des.norm());
-    angle_target.y = atan(a_des(0)/a_des(2));
-    angle_target.z = Yaw_Init;
-    orientation_target = euler2quaternion(angle_target.x, angle_target.y, angle_target.z);
-
-//    thrust_target  = (float)a_des.norm() /9.8*(base_atti_thrust_msg.thrust);   //目标推力值
-
-    temp_angle = quaternion2euler(pose_drone_odom.pose.pose.orientation.x, pose_drone_odom.pose.pose.orientation.y,
-                                  pose_drone_odom.pose.pose.orientation.z, \
-        pose_drone_odom.pose.pose.orientation.w);
-    thrust_target  = (float)(a_des(0)*sin(temp_angle.y)*cos(temp_angle.x)-a_des(1)*sin(temp_angle.x)+a_des(2)*cos(temp_angle.y)*cos(temp_angle.x)) /9.8*(base_atti_thrust_msg.thrust);   //目标推力值
 }
 
 int pix_controller(float cur_time)

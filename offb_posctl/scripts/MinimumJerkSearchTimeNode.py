@@ -20,7 +20,7 @@ from geometry_msgs.msg import PoseStamped
 from offb_posctl.msg import controlstate
 from pyquaternion import Quaternion
 # print(offb_posctl.__file__)
-phi=1.4
+phi=1.57
 normspeed=1
 ay0=0
 vy0=0
@@ -48,6 +48,7 @@ ubz=2.5
 lbv=-5
 ubv=5
 currentupdateflag = False
+targetstartmoveflag=False
 Init_guess=0.1
 increaseratio=1.5
 
@@ -72,7 +73,7 @@ def ineqmycon(x):
     thrust=np.sqrt(((alpha_y*tmesh**3)/6 + (beta_y*tmesh**2)/2 + gamma_y*tmesh + ay0)**2 + ((alpha_z*tmesh**3)/6 + (beta_z*tmesh**2)/2 + gamma_z*tmesh + az0 + 49/5)**2)
     c0=t
     # thrust constraints
-    c1=2*9.8-thrust
+    # c1=2*9.8-thrust
     # print("c1----",c1.shape)
     # z's lower bound  constraints
     c2=-lbz+(alpha_z/120*tmesh**5+beta_z/24*tmesh**4+gamma_z/6*tmesh**3+az0/2*tmesh**2+vz0*tmesh+z0)
@@ -102,10 +103,10 @@ def ineqmycon(x):
     c12=-(alpha_z/24*tmesh**4+beta_z/6*tmesh**3+gamma_z/2*tmesh**2+az0*tmesh+vz0-ubv)
     c13=-(lbv-(alpha_z/24*tmesh**4+beta_z/6*tmesh**3+gamma_z/2*tmesh**2+az0*tmesh+vz0))
     # print("--------t,flag", t,(np.hstack((c0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14))))
-    return (np.hstack((c0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14))>-0.05).all()
+    return (np.hstack((c0,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14))>-0.05).all()
 
 def pos_twist_callback(data):
-    global vy0, y0, vz0, z0, ay0,az0,currentupdateflag
+    global vy0, y0, vz0, z0, ay0,az0,currentupdateflag,targetstartmoveflag
     y0 = data.pose.pose.position.y  # relative pos
     z0 = data.pose.pose.position.z
     vy0 = data.twist.twist.linear.y
@@ -114,6 +115,7 @@ def pos_twist_callback(data):
     az0=data.twist.twist.angular.z
     # print(ay0)
     currentupdateflag = True
+    targetstartmoveflag = True
 
 
 def droneImu_callback(data):
@@ -129,11 +131,13 @@ def droneImu_callback(data):
     # print ("ay0",ay0)
 
 def main():
-    global currentupdateflag, Init_guess,increaseratio
+    global currentupdateflag, Init_guess,increaseratio, targetstartmoveflag, ytf, ztf
     controlfreq=30
     controlstate_msg = controlstate()  # 要发布的控制量消息
     planned_path=Path()
+    target_path=Path()
     planned_pose_stamped=PoseStamped()
+    target_pose_stamped=PoseStamped()
     recv_acc=Imu()
 
     rospy.init_node('minimumsnap_control', anonymous=True)
@@ -149,12 +153,20 @@ def main():
 
     pub = rospy.Publisher( uav_id + "ocp/control_state", controlstate, queue_size=1)
     path_pub = rospy.Publisher(uav_id + "plannedtrajectory",Path,queue_size=1)
+    targetpath_pub = rospy.Publisher(uav_id + "plannedtrajectory",Path,queue_size=1)
     acc_pub = rospy.Publisher(uav_id +"/acc_data_inworld",Imu,queue_size=1)
 
     currentupdateflag=True
     # currentupdateflag=False
     searchstep,leftnode,rightnode,solveflag=1, 0.1, 10, False
+    targetbasevelocity=0.1
+    targetvelfrequency=2
+    targetvelamplitude=0.05
+    targetmovecounter=0
     while not (rospy.is_shutdown()):
+        # if targetstartmoveflag:
+        #     ytf=ytf+(targetvelamplitude*math.sin(2*math.pi*2*targetmovecounter*100)+targetbasevelocity)*0.01
+        #     targetmovecounter=targetmovecounter+1
         if currentupdateflag:
             Init_guess=leftnode*0.5
             leftnode=Init_guess
@@ -245,6 +257,10 @@ def main():
                 planned_path.header.stamp=rospy.Time.now()
                 planned_path.header.frame_id="ground_link"
                 planned_path.poses=[]
+                target_path.header.stamp=rospy.Time.now()
+                target_path.header.frame_id="ground_link"
+                target_path.poses=[]
+
                 for i in range(0, int(controlstate_msg.arraylength)):
                     planned_pose_stamped.pose.position.x=controlstate_msg.stateXarray[i]
                     planned_pose_stamped.pose.position.y=controlstate_msg.stateYarray[i]
@@ -253,7 +269,16 @@ def main():
                     # planned_pose_stamped.header.frame_id="base_link"
                     # planned_pose_stamped.header.seq=i
                     planned_path.poses.append(copy.deepcopy(planned_pose_stamped))
-                path_pub.publish(planned_path)
+
+                    target_pose_stamped.pose.position.x=0
+                    target_pose_stamped.pose.position.y=ytf
+                    target_pose_stamped.pose.position.z=ztf
+                    target_pose_stamped.header.stamp=rospy.Time.now()
+                    target_path.poses.append(copy.deepcopy(target_pose_stamped))
+
+
+            path_pub.publish(planned_path)
+            targetpath_pub.publish(target_path)
 
         # print ("acc",az0)
         recv_acc.linear_acceleration.y=ay0
