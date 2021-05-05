@@ -35,7 +35,7 @@ bool Parameter::readParam(const char *addr) {
 
         if(name == "Hoverthrust")
         {
-            hoverthrust=value[0];
+            THR_HOVER=value[0];
         }
         if (name == "POS")
         {

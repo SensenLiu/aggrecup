@@ -10,7 +10,7 @@ class Parameter {
 
 public:
 
-    float hoverthrust;
+    float THR_HOVER;
 
     float pos_x;
     float pos_y;

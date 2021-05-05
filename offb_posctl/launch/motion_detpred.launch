@@ -1,0 +1,4 @@
+<launch>
+    <node pkg="offb_posctl" type="motiondetection" name="motiondetection" output="screen"> </node>
+    <node pkg="offb_posctl" type="motionprediction" name="motionprediction" output="screen"> </node>
+</launch>

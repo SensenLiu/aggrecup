@@ -1,0 +1,11 @@
+std_msgs/Header header
+int16 discrepointpersecond
+int16 arraylength
+float32[] stateXarray
+float32[] stateYarray
+float32[] stateZarray
+float32[] stateVXarray
+float32[] stateVYarray
+float32[] stateVZarray
+float32[] phiarray
+float32[] thetaarray

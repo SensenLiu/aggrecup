@@ -18,10 +18,31 @@ from sensor_msgs.msg import Imu
 from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped
 from offb_posctl.msg import controlstate
+from offb_posctl.msg import wallstate
 from pyquaternion import Quaternion
 # print(offb_posctl.__file__)
+
 phi=1.57
-normspeed=1
+normspeed=-0.15
+tangentialspeed=0.8
+ytf_wall=2.00
+ztf_wall=2.00 # true is 1.94
+vytf_wall=0.0
+vztf_wall=0.0
+cuplength=0.1
+
+# parabolictime=phi/25.0
+parabolictime=0
+print(parabolictime*30)
+approachthrust=9.8
+a_normal=approachthrust-9.8*math.cos(phi)
+a_tangential=-9.8*math.sin(phi)
+normspeed=normspeed-a_normal*parabolictime
+tangentialspeed=tangentialspeed-a_tangential*parabolictime
+normaloff=-(normspeed*parabolictime+0.5*a_normal*parabolictime**2)+cuplength
+tangentialoff=-(tangentialspeed*parabolictime+0.5*a_tangential*parabolictime**2)
+
+
 ay0=0
 vy0=0
 y0=0
@@ -34,12 +55,19 @@ z0=0.5
 # az0=-6.541593055514754
 # vz0=3.7674505710601807
 # z0=1.8277690410614014
+
+delta_vytf=-normspeed*math.sin(phi)+tangentialspeed*math.cos(phi)
+delta_ytf=-normaloff*math.sin(phi)+tangentialoff*math.cos(phi)
+delta_vztf=normspeed*math.cos(phi)+tangentialspeed*math.sin(phi)
+delta_ztf=normaloff*math.cos(phi)+tangentialoff*math.sin(phi)
+
 aytf=-math.sin(phi)*9.8
-vytf=normspeed*math.sin(phi)
-ytf=2.0
+vytf=delta_vytf+0
+ytf=ytf_wall+delta_ytf
+
 aztf=math.cos(phi)*9.8-9.8
-vztf=-normspeed*math.cos(phi)
-ztf=2.0
+vztf=delta_vztf+0
+ztf=ztf_wall+delta_ztf
 meshpoint=np.linspace(1, 0.01, 20)
 thrustmax=2*9.8
 angleaccdmax=25
@@ -48,15 +76,38 @@ ubz=2.5
 lbv=-5
 ubv=5
 currentupdateflag = False
-targetstartmoveflag=False
+wallstateupdateflag = False
 Init_guess=0.1
 increaseratio=1.5
 
+wallstate_msg = wallstate()  # 要发布的控制量消息
+lastwallupdatetime=0.0
+lastdroneupdatetime=0.0
+
+lastsolved_time=0.0
+lastsolveduration=0.0
 # Constraint
 def ineqmycon(x):
-    global ay0, vy0, y0, az0, vz0, z0, aytf, vytf, ytf, aztf, vztf, ztf, meshpoint, thrustmax, angleaccdmax, lbz, ubz, lbv, ubv
+    global ay0, vy0, y0, az0, vz0, z0, aytf, vytf, ytf, aztf, vztf, ztf, delta_vytf, delta_ytf, delta_vztf, delta_ztf, ytf_wall,ztf_wall,vytf_wall,vztf_wall,meshpoint, thrustmax, angleaccdmax, lbz, ubz, lbv, ubv,lastwallupdatetime, wallstate_msg
     t=x
-    # print("t-----",t)
+    if((time.time()-lastwallupdatetime)*wallstate_msg.discrepointpersecond>=wallstate_msg.arraylength):
+        lastwallupdatetime=False
+        return False
+    wallindex=int(min(math.floor((t+time.time()-lastwallupdatetime)*wallstate_msg.discrepointpersecond),wallstate_msg.arraylength-1))
+    # print(wallindex)
+    if wallindex>=wallstate_msg.arraylength:
+        return False
+    ytf_wall=wallstate_msg.stateYarray[wallindex]
+    vytf_wall=wallstate_msg.stateVYarray[wallindex]
+    ztf_wall=wallstate_msg.stateZarray[wallindex]
+    vztf_wall=wallstate_msg.stateVZarray[wallindex]
+
+    ytf=ytf_wall+delta_ytf
+    vytf=vytf_wall+delta_vytf
+    ztf=ztf_wall+delta_ztf
+    vztf=vztf_wall+delta_vztf
+
+    print("t----wallindex----ytf:",t,wallindex,ytf)
     tarray=np.array([[60/t**3,-360/t**4,720/t**5],[-24/t**2,168/t**3,-360/t**4],[3/t,-24/t**2,60/t**3]])
 
     alpha_y,beta_y,gamma_y=np.dot(tarray,np.array([aytf-ay0,vytf-vy0-ay0*t,ytf-y0-vy0*t-0.5*ay0*t**2]))
@@ -105,6 +156,20 @@ def ineqmycon(x):
     # print("--------t,flag", t,(np.hstack((c0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14))))
     return (np.hstack((c0,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14))>-0.05).all()
 
+def decreasedtimemethod():
+    global lastsolved_time,lastsolveduration,lastwallupdatetime,wallstate_msg,vytf, ytf, vztf, ztf, delta_vytf, delta_ytf, delta_vztf, delta_ztf, ytf_wall,ztf_wall,vytf_wall,vztf_wall
+    rendezvousindex=int(min(math.floor((lastsolved_time+lastsolveduration-lastwallupdatetime)*wallstate_msg.discrepointpersecond),wallstate_msg.arraylength-1))
+
+    ytf_wall=wallstate_msg.stateYarray[rendezvousindex]
+    vytf_wall=wallstate_msg.stateVYarray[rendezvousindex]
+    ztf_wall=wallstate_msg.stateZarray[rendezvousindex]
+    vztf_wall=wallstate_msg.stateVZarray[rendezvousindex]
+
+    ytf=ytf_wall+delta_ytf
+    vytf=vytf_wall+delta_vytf
+    ztf=ztf_wall+delta_ztf
+    vztf=vztf_wall+delta_vztf
+
 def pos_twist_callback(data):
     global vy0, y0, vz0, z0, ay0,az0,currentupdateflag,targetstartmoveflag
     y0 = data.pose.pose.position.y  # relative pos
@@ -115,23 +180,30 @@ def pos_twist_callback(data):
     az0=data.twist.twist.angular.z
     # print(ay0)
     currentupdateflag = True
-    targetstartmoveflag = True
 
 
 def droneImu_callback(data):
-    global ay0, az0
+    global ay0, az0,lastdroneupdatetime
     # ay0 = data.linear_acceleration.y
     # az0 = data.linear_acceleration.z-9.8
     qcurrent = Quaternion(data.orientation.w, data.orientation.x, data.orientation.y, data.orientation.z)
-    qaccinworld=(qcurrent.inverse).rotate(Quaternion(vector=[data.linear_acceleration.x,data.linear_acceleration.y,data.linear_acceleration.z]))
+    qaccinworld=(qcurrent).rotate(Quaternion(vector=[data.linear_acceleration.x,data.linear_acceleration.y,data.linear_acceleration.z]))
     # ay0=0.2*min(max(qaccinworld.y,-2*9.8),2*9.8)+0.8*ay0
     # az0=0.2*min(max(qaccinworld.z-9.8,-9.8),9.8)+0.8*az0
     # ay0=0
     # az0=0
     # print ("ay0",ay0)
+    lastdroneupdatetime=time.time()
+
+def wallstate_callback(data):
+    global wallstate_msg,wallstateupdateflag,lastwallupdatetime
+    wallstate_msg=data
+    wallstateupdateflag=True
+    lastwallupdatetime=time.time()
+    # print ("ay0",ay0)
 
 def main():
-    global currentupdateflag, Init_guess,increaseratio, targetstartmoveflag, ytf, ztf
+    global currentupdateflag, wallstateupdateflag, Init_guess,increaseratio, targetstartmoveflag, ytf, ztf,lastsolved_time,lastdroneupdatetime,lastsolveduration
     controlfreq=30
     controlstate_msg = controlstate()  # 要发布的控制量消息
     planned_path=Path()
@@ -150,29 +222,26 @@ def main():
     #                  TwistStamped, plane_vel_callback)  # plane veocity
     rospy.Subscriber(uav_id + "/mavros/imu/data",
                      Imu, droneImu_callback)  # plane veocity
+    rospy.Subscriber(uav_id + "predictedwall_array",
+                     wallstate, wallstate_callback)  # plane veocity
 
     pub = rospy.Publisher( uav_id + "ocp/control_state", controlstate, queue_size=1)
     path_pub = rospy.Publisher(uav_id + "plannedtrajectory",Path,queue_size=1)
-    targetpath_pub = rospy.Publisher(uav_id + "plannedtrajectory",Path,queue_size=1)
     acc_pub = rospy.Publisher(uav_id +"/acc_data_inworld",Imu,queue_size=1)
 
     currentupdateflag=True
-    # currentupdateflag=False
     searchstep,leftnode,rightnode,solveflag=1, 0.1, 10, False
-    targetbasevelocity=0.1
-    targetvelfrequency=2
-    targetvelamplitude=0.05
-    targetmovecounter=0
+
     while not (rospy.is_shutdown()):
         # if targetstartmoveflag:
         #     ytf=ytf+(targetvelamplitude*math.sin(2*math.pi*2*targetmovecounter*100)+targetbasevelocity)*0.01
         #     targetmovecounter=targetmovecounter+1
-        if currentupdateflag:
+        if currentupdateflag and wallstateupdateflag:
             Init_guess=leftnode*0.5
             leftnode=Init_guess
             rightnode=rightnode*increaseratio
             searchstep=max((rightnode-leftnode)/5, 0.01)
-            start = time.time()
+            solveflag=False
 
             while rightnode-leftnode>0.2 or solveflag==False:
                 solveflag=ineqmycon(leftnode)
@@ -187,44 +256,51 @@ def main():
                             rightnode=(leftnode+rightnode)/2.0
                 else:
                     if leftnode>=rightnode:
-                        leftnode=max(Init_guess,0.1)
+                        if searchstep==0.01:
+                            print("can not solve--Init_guess, y0,vy0,ay0,z0,vz0,az0",Init_guess,y0,vy0,ay0,z0,vz0,az0)
+                            rightnode=rightnode/increaseratio
+                            leftnode=0.1
+                            break
+                        leftnode=Init_guess
                         searchstep=max(searchstep/2,0.01)
                     leftnode=leftnode+searchstep
                 # print("searchstep--",searchstep)
-                if time.time()-start>=0.2:
+                if time.time()-lastdroneupdatetime>=0.2:
                     print("Init_guess, y0,vy0,ay0,z0,vz0,az0",Init_guess,y0,vy0,ay0,z0,vz0,az0)
-                    Init_guess=0.1
                     rightnode=rightnode/increaseratio # to avoid rightnode increase by multiply 1.5 many times in rightnode=rightnode*1.5
                     leftnode=0.1
                     print ("can not solve")
                     break
-            # resetcounter=0
-            # Init_guess=Init_guess*0.5
-            # solveflag=ineqmycon(Init_guess)
-            # while(solveflag==False):
-            #     Init_guess=Init_guess+0.01
-            #     solveflag=ineqmycon(Init_guess)
-            #     if(Init_guess>=10):
-            #         if(resetcounter==0):
-            #             Init_guess=0.1
-            #             resetcounter=1
-            #         else:
-            #             print("can not solve")
-            #             break
 
-            running_time = time.time() - start
+            running_time = time.time() - lastdroneupdatetime
+            t=0
             if solveflag:
+                lastsolved_time=time.time()
                 print('time cost : %.5f sec' % running_time,'terminate cost : %.2f sec' % rightnode)
                 # print('time cost : %.5f sec' % running_time,'leftnode cost : %.5f sec' % leftnode, 'right cost : %.5f sec' %rightnode,"y0,vy0,ay0,z0,vz0,az0",y0,vy0,ay0,z0,vz0,az0)
                 # print('time cost : %.5f sec' % running_time,'terminate cost : %.5f sec' % Init_guess,"y0,vy0,ay0,z0,vz0,az0 ",y0,vy0,ay0,z0,vz0,az0)
                 t=rightnode
+                lastsolveduration=t
                 # t=Init_guess
                 if(t<=1):
-                    increaseratio=1
-
+                    increaseratio=1.0
+            else:
+                t=max(lastsolveduration-(time.time()-lastsolved_time),0)
+                if(t>0.5):
+                    decreasedtimemethod()
+                    rightnode=t*increaseratio
+                    leftnode=t*0.5
+                    print('supplement decreased time----time cost : %.5f sec' % running_time,'terminate cost : %.2f sec' % t)
+            if t>=0.5:
                 controlstate_msg.discrepointpersecond = controlfreq
                 controlstate_msg.arraylength = round(t*controlfreq)
                 controlstate_msg.inicounter = (int)(min(2,controlstate_msg.arraylength))
+                controlstate_msg.wall_z=ztf_wall
+                controlstate_msg.wall_y=ytf_wall
+                controlstate_msg.wall_vy=vytf_wall
+                controlstate_msg.wall_vz=vztf_wall
+                controlstate_msg.parabolictime=parabolictime
+
 
                 times=np.linspace(0, 1, controlstate_msg.arraylength)*t
                 tarray=np.array([[60/t**3,-360/t**4,720/t**5],[-24/t**2,168/t**3,-360/t**4],[3/t,-24/t**2,60/t**3]])
@@ -252,14 +328,11 @@ def main():
 
                 pub.publish(controlstate_msg)
                 # print (y[-1],z[-1])
-                currentupdateflag = False
+                # currentupdateflag = False
 
                 planned_path.header.stamp=rospy.Time.now()
                 planned_path.header.frame_id="ground_link"
                 planned_path.poses=[]
-                target_path.header.stamp=rospy.Time.now()
-                target_path.header.frame_id="ground_link"
-                target_path.poses=[]
 
                 for i in range(0, int(controlstate_msg.arraylength)):
                     planned_pose_stamped.pose.position.x=controlstate_msg.stateXarray[i]
@@ -270,21 +343,13 @@ def main():
                     # planned_pose_stamped.header.seq=i
                     planned_path.poses.append(copy.deepcopy(planned_pose_stamped))
 
-                    target_pose_stamped.pose.position.x=0
-                    target_pose_stamped.pose.position.y=ytf
-                    target_pose_stamped.pose.position.z=ztf
-                    target_pose_stamped.header.stamp=rospy.Time.now()
-                    target_path.poses.append(copy.deepcopy(target_pose_stamped))
-
-
-            path_pub.publish(planned_path)
-            targetpath_pub.publish(target_path)
+                path_pub.publish(planned_path)
 
         # print ("acc",az0)
-        recv_acc.linear_acceleration.y=ay0
-        recv_acc.linear_acceleration.z=az0
-        recv_acc.header.stamp=rospy.Time.now()
-        acc_pub.publish(recv_acc)
+        # recv_acc.linear_acceleration.y=ay0
+        # recv_acc.linear_acceleration.z=az0
+        # recv_acc.header.stamp=rospy.Time.now()
+        # acc_pub.publish(recv_acc)
 
                 # y=alpha_y/120*times**5+beta_y/24*times**4+gamma_y/6*times**3+ay0/2*times**2+vy0*times+y0
                 # vy=alpha_y/24*times**4+beta_y/6*times**3+gamma_y/2*times**2+ay0*times+vy0
@@ -334,7 +399,8 @@ def main():
                 # # print(result)
                 # plt.show()
 
-    rate.sleep()
+        rate.sleep()
+        # print("sleep test")
 
 if __name__ == '__main__':  # 主函数
     main()

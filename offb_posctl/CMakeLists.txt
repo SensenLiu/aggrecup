@@ -28,6 +28,7 @@ pkg_check_modules(ipopt REQUIRED IMPORTED_TARGET ipopt)
  add_message_files(
    FILES
    controlstate.msg
+   wallstate.msg
  )
 
 ### Generate services in the 'srv' folder
@@ -217,4 +218,12 @@ add_executable(minitime_psopt_control  src/minitime_psopt_control.cpp)
 target_link_libraries(minitime_psopt_control  PUBLIC PSOPT PRIVATE PkgConfig::ipopt adolc ${catkin_LIBRARIES} thelib
          )
 add_dependencies(offb_posctl offb_posctl_gencpp)
+
+add_executable(motionprediction  src/motionprediction.cpp)
+target_link_libraries(motionprediction  ${catkin_LIBRARIES}
+        )
+
+add_executable(motiondetection  src/motiondetection.cpp)
+target_link_libraries(motiondetection  ${catkin_LIBRARIES}
+        )
 

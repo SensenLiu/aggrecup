@@ -2,6 +2,11 @@ std_msgs/Header header
 int16 discrepointpersecond
 int16 inicounter
 int16 arraylength
+float32 wall_z
+float32 wall_y
+float32 wall_vz
+float32 wall_vy
+float32 parabolictime
 float32[] thrustarray
 float32[] tauarray
 float32[] phiarray
