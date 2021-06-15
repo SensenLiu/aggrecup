@@ -361,7 +361,7 @@ def main():
                 # az=alpha_z/6*times**3+beta_z/2*times**2+gamma_z*times+az0
                 # a=np.sqrt(az**2+ay**2)
                 # thurst=np.sqrt((az+9.8)**2+ay**2)
-                # phiseries=-np.arctan(ay/(az+9.8))
+                # phiseries=-np.arctan2(ay,(az+9.8))
                 # # print("az--------", az)
                 # angleacc=np.zeros_like(times)
                 # for i in range(len(times)):
