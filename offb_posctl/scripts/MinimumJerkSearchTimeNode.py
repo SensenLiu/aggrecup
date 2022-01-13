@@ -90,24 +90,24 @@ lastsolveduration=0.0
 def ineqmycon(x):
     global ay0, vy0, y0, az0, vz0, z0, aytf, vytf, ytf, aztf, vztf, ztf, delta_vytf, delta_ytf, delta_vztf, delta_ztf, ytf_wall,ztf_wall,vytf_wall,vztf_wall,meshpoint, thrustmax, angleaccdmax, lbz, ubz, lbv, ubv,lastwallupdatetime, wallstate_msg
     t=x
-    if((time.time()-lastwallupdatetime)*wallstate_msg.discrepointpersecond>=wallstate_msg.arraylength):
-        lastwallupdatetime=False
-        return False
-    wallindex=int(min(math.floor((t+time.time()-lastwallupdatetime)*wallstate_msg.discrepointpersecond),wallstate_msg.arraylength-1))
-    # print(wallindex)
-    if wallindex>=wallstate_msg.arraylength:
-        return False
-    ytf_wall=wallstate_msg.stateYarray[wallindex]
-    vytf_wall=wallstate_msg.stateVYarray[wallindex]
-    ztf_wall=wallstate_msg.stateZarray[wallindex]
-    vztf_wall=wallstate_msg.stateVZarray[wallindex]
+    # if((time.time()-lastwallupdatetime)*wallstate_msg.discrepointpersecond>=wallstate_msg.arraylength):
+    #     lastwallupdatetime=False
+    #     return False
+    # wallindex=int(min(math.floor((t+time.time()-lastwallupdatetime)*wallstate_msg.discrepointpersecond),wallstate_msg.arraylength-1))
+    # # print(wallindex)
+    # if wallindex>=wallstate_msg.arraylength:
+    #     return False
+    # ytf_wall=wallstate_msg.stateYarray[wallindex]
+    # vytf_wall=wallstate_msg.stateVYarray[wallindex]
+    # ztf_wall=wallstate_msg.stateZarray[wallindex]
+    # vztf_wall=wallstate_msg.stateVZarray[wallindex]
 
-    ytf=ytf_wall+delta_ytf
-    vytf=vytf_wall+delta_vytf
-    ztf=ztf_wall+delta_ztf
-    vztf=vztf_wall+delta_vztf
+    # ytf=ytf_wall+delta_ytf
+    # vytf=vytf_wall+delta_vytf
+    # ztf=ztf_wall+delta_ztf
+    # vztf=vztf_wall+delta_vztf
 
-    print("t----wallindex----ytf:",t,wallindex,ytf)
+    # print("t----wallindex----ytf:",t,wallindex,ytf)
     tarray=np.array([[60/t**3,-360/t**4,720/t**5],[-24/t**2,168/t**3,-360/t**4],[3/t,-24/t**2,60/t**3]])
 
     alpha_y,beta_y,gamma_y=np.dot(tarray,np.array([aytf-ay0,vytf-vy0-ay0*t,ytf-y0-vy0*t-0.5*ay0*t**2]))
@@ -120,9 +120,7 @@ def ineqmycon(x):
         t=tmesh[i]
         angleacc[i]=((((alpha_y*t**2)/2 + beta_y*t + gamma_y)/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5) - (((alpha_z*t**2)/2 + beta_z*t + gamma_z)*((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0))/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2)*((2*((alpha_y*t**2)/2 + beta_y*t + gamma_y)*((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0))/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2 - (2*((alpha_z*t**2)/2 + beta_z*t + gamma_z)*((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0)**2)/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**3))/(((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0)**2/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2 + 1)**2 - ((beta_y + alpha_y*t)/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5) - ((beta_z + alpha_z*t)*((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0))/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2 - (2*((alpha_y*t**2)/2 + beta_y*t + gamma_y)*((alpha_z*t**2)/2 + beta_z*t + gamma_z))/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2 + (2*((alpha_z*t**2)/2 + beta_z*t + gamma_z)**2*((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0))/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**3)/(((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0)**2/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2 + 1)
 
-    t=x
     thrust=np.sqrt(((alpha_y*tmesh**3)/6 + (beta_y*tmesh**2)/2 + gamma_y*tmesh + ay0)**2 + ((alpha_z*tmesh**3)/6 + (beta_z*tmesh**2)/2 + gamma_z*tmesh + az0 + 49/5)**2)
-    c0=t
     # thrust constraints
     # c1=2*9.8-thrust
     # print("c1----",c1.shape)
@@ -137,16 +135,16 @@ def ineqmycon(x):
     c6=angleacc*thrustmax/(4*angleaccdmax)+thrust/2
 
     # phi belongs to [-1.57,1.57] constraints
-    c7=((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 +9.8)
-    c8=1
-    c9=1
-    if beta_z*beta_z>=2*alpha_z and alpha_z!=0 :
-        t1=(-beta_z+math.sqrt(beta_z*beta_z-2*alpha_z))/alpha_z
-        t2=(-beta_z-math.sqrt(beta_z*beta_z-2*alpha_z))/alpha_z
-        if t1>=0 and t1<=t :
-            c8=((alpha_z*t1**3)/6 + (beta_z*t1**2)/2 + gamma_z*t1 + az0 +9.8)
-        if t2>=0 and t2<=t :
-            c9=((alpha_z*t2**3)/6 + (beta_z*t2**2)/2 + gamma_z*t2 + az0 +9.8)
+    # c7=((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 +9.8)
+    # c8=1
+    # c9=1
+    # if beta_z*beta_z>=2*alpha_z and alpha_z!=0 :
+    #     t1=(-beta_z+math.sqrt(beta_z*beta_z-2*alpha_z))/alpha_z
+    #     t2=(-beta_z-math.sqrt(beta_z*beta_z-2*alpha_z))/alpha_z
+    #     if t1>=0 and t1<=t :
+    #         c8=((alpha_z*t1**3)/6 + (beta_z*t1**2)/2 + gamma_z*t1 + az0 +9.8)
+    #     if t2>=0 and t2<=t :
+    #         c9=((alpha_z*t2**3)/6 + (beta_z*t2**2)/2 + gamma_z*t2 + az0 +9.8)
     #print('the value of t1 and t2 is',t1,t2)
 
     c10=-(alpha_y/24*tmesh**4+beta_y/6*tmesh**3+gamma_y/2*tmesh**2+ay0*tmesh+vy0-ubv)
@@ -154,21 +152,21 @@ def ineqmycon(x):
     c12=-(alpha_z/24*tmesh**4+beta_z/6*tmesh**3+gamma_z/2*tmesh**2+az0*tmesh+vz0-ubv)
     c13=-(lbv-(alpha_z/24*tmesh**4+beta_z/6*tmesh**3+gamma_z/2*tmesh**2+az0*tmesh+vz0))
     # print("--------t,flag", t,(np.hstack((c0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14))))
-    return (np.hstack((c0,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14))>-0.05).all()
+    return (np.hstack((c2,c3,c4,c5,c6,c10,c11,c12,c13,c14))>-0.05).all()
 
 def decreasedtimemethod():
     global lastsolved_time,lastsolveduration,lastwallupdatetime,wallstate_msg,vytf, ytf, vztf, ztf, delta_vytf, delta_ytf, delta_vztf, delta_ztf, ytf_wall,ztf_wall,vytf_wall,vztf_wall
-    rendezvousindex=int(min(math.floor((lastsolved_time+lastsolveduration-lastwallupdatetime)*wallstate_msg.discrepointpersecond),wallstate_msg.arraylength-1))
-
-    ytf_wall=wallstate_msg.stateYarray[rendezvousindex]
-    vytf_wall=wallstate_msg.stateVYarray[rendezvousindex]
-    ztf_wall=wallstate_msg.stateZarray[rendezvousindex]
-    vztf_wall=wallstate_msg.stateVZarray[rendezvousindex]
-
-    ytf=ytf_wall+delta_ytf
-    vytf=vytf_wall+delta_vytf
-    ztf=ztf_wall+delta_ztf
-    vztf=vztf_wall+delta_vztf
+    # rendezvousindex=int(min(math.floor((lastsolved_time+lastsolveduration-lastwallupdatetime)*wallstate_msg.discrepointpersecond),wallstate_msg.arraylength-1))
+    #
+    # ytf_wall=wallstate_msg.stateYarray[rendezvousindex]
+    # vytf_wall=wallstate_msg.stateVYarray[rendezvousindex]
+    # ztf_wall=wallstate_msg.stateZarray[rendezvousindex]
+    # vztf_wall=wallstate_msg.stateVZarray[rendezvousindex]
+    #
+    # ytf=ytf_wall+delta_ytf
+    # vytf=vytf_wall+delta_vytf
+    # ztf=ztf_wall+delta_ztf
+    # vztf=vztf_wall+delta_vztf
 
 def pos_twist_callback(data):
     global vy0, y0, vz0, z0, ay0,az0,currentupdateflag,targetstartmoveflag
@@ -236,10 +234,11 @@ def main():
         # if targetstartmoveflag:
         #     ytf=ytf+(targetvelamplitude*math.sin(2*math.pi*2*targetmovecounter*100)+targetbasevelocity)*0.01
         #     targetmovecounter=targetmovecounter+1
-        if currentupdateflag and wallstateupdateflag:
+        # if currentupdateflag and wallstateupdateflag:
+        if currentupdateflag :
             Init_guess=leftnode*0.5
             leftnode=Init_guess
-            rightnode=rightnode*increaseratio
+            rightnode=min(rightnode*increaseratio,10)
             searchstep=max((rightnode-leftnode)/5, 0.01)
             solveflag=False
 
@@ -257,8 +256,8 @@ def main():
                 else:
                     if leftnode>=rightnode:
                         if searchstep==0.01:
-                            print("can not solve--Init_guess, y0,vy0,ay0,z0,vz0,az0",Init_guess,y0,vy0,ay0,z0,vz0,az0)
-                            rightnode=rightnode/increaseratio
+                            print("can not solve--Init_guess, y0,vy0,ay0,z0,vz0,az0,rightnode",Init_guess,y0,vy0,ay0,z0,vz0,az0,rightnode)
+                            # rightnode=rightnode/increaseratio
                             leftnode=0.1
                             break
                         leftnode=Init_guess
@@ -295,10 +294,10 @@ def main():
                 controlstate_msg.discrepointpersecond = controlfreq
                 controlstate_msg.arraylength = round(t*controlfreq)
                 controlstate_msg.inicounter = (int)(min(2,controlstate_msg.arraylength))
-                controlstate_msg.wall_z=ztf_wall
-                controlstate_msg.wall_y=ytf_wall
-                controlstate_msg.wall_vy=vytf_wall
-                controlstate_msg.wall_vz=vztf_wall
+                controlstate_msg.rendezvouswall_z=ztf_wall
+                controlstate_msg.rendezvouswall_y=ytf_wall
+                controlstate_msg.rendezvouswall_vy=vytf_wall
+                controlstate_msg.rendezvouswall_vz=vztf_wall
                 controlstate_msg.parabolictime=parabolictime
 
 
@@ -328,7 +327,7 @@ def main():
 
                 pub.publish(controlstate_msg)
                 # print (y[-1],z[-1])
-                # currentupdateflag = False
+                currentupdateflag = False
 
                 planned_path.header.stamp=rospy.Time.now()
                 planned_path.header.frame_id="ground_link"

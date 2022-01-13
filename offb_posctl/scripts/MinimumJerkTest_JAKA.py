@@ -5,7 +5,7 @@ import socket
 import numpy as np
 from scipy.optimize import minimize
 import time
-from numba import jit, float64
+# from numba import jit, float64
 import datetime
 import math
 import matplotlib
@@ -14,14 +14,14 @@ import matplotlib.pyplot as plt
 import scipy
 print(np.__version__)
 
-phi=1.22
-normspeed=-0.5
+phi=1.92# true is 1.57
+normspeed=-0.50 # if this speed is too low, the counter-move will cannot adhesion without enough pressure
 tangentialspeed=0.3
-ytf_wall=2.00
-ztf_wall=1.40 # true is 1.94
+ytf_wall=2.25 # true is 1.88
+ztf_wall=1.80 # true is 1.97
 vytf_wall=0.0
 vztf_wall=0.0
-cuplength=0.1
+cuplength=0.28
 
 # parabolictime=phi/25.0
 parabolictime=0
@@ -54,11 +54,11 @@ delta_vztf=normspeed*math.cos(phi)+tangentialspeed*math.sin(phi)
 delta_ztf=normaloff*math.cos(phi)+tangentialoff*math.sin(phi)
 
 aytf=-math.sin(phi)*9.8
-vytf=delta_vytf+0
+vytf=delta_vytf+vytf_wall
 ytf=ytf_wall+delta_ytf
 
 aztf=math.cos(phi)*9.8-9.8
-vztf=delta_vztf+0
+vztf=delta_vztf+vztf_wall
 ztf=ztf_wall+delta_ztf
 meshpoint=np.linspace(1, 0.01, 20)
 thrustmax=2*9.8
@@ -68,21 +68,27 @@ ubz=2.5
 lbv=-5
 ubv=5
 currentupdateflag = False
-wallstateupdateflag = False
 Init_guess=0.1
-increaseratio=1.5
+increaseratio=1.0
 
-lastwallupdatetime=0.0
-lastdroneupdatetime=0.0
 
-lastsolved_time=0.0
-lastsolveduration=0.0
+
+x_waypoint=np.array([137.702,200.219,571.408,194.762,137.702])
+y_waypoint=np.array([-537.089,-359.058,-642.144,-492.886,-537.089])
+z_waypoint=np.array([447.106,330.43,484.647,473.516,447.106])
+segdistance=np.sqrt(np.diff(x_waypoint)**2+np.diff(y_waypoint)**2+np.diff(z_waypoint)**2)/1000
+print(segdistance)
+v_max=0.8
+a_max=1.5
+segtime=1.5*segdistance/v_max
+print(segtime)
+
 
 
 print("Terminate state, ytf,vytf,aytf,ztf,vztf,aztf",ytf,vytf,aytf,ztf,vztf,aztf)
 
 def ineqmycon(x):
-    global ay0, vy0, y0, az0, vz0, z0, aytf, vytf, ytf, aztf, vztf, ztf, meshpoint, thrustmax, angleaccdmax, lbz, lbv, ubv
+    global x_waypoint, y_waypoint, y0, az0, vz0, z0, aytf, vytf, ytf, aztf, vztf, ztf, meshpoint, thrustmax, angleaccdmax, lbz, lbv, ubv
     t=x[0]
     tarray=np.array([[60/t**3,-360/t**4,720/t**5],[-24/t**2,168/t**3,-360/t**4],[3/t,-24/t**2,60/t**3]])
 
@@ -125,13 +131,6 @@ def ineqmycon(x):
     #     if t2>=0 and t2<=t :
     #         c9=((alpha_z*t2**3)/6 + (beta_z*t2**2)/2 + gamma_z*t2 + az0 +9.8)
     #print('the value of t1 and t2 is',t1,t2)
-    # tmesh=t*(np.array(meshpoint))
-    # angleacc=np.zeros_like(tmesh)
-    # for i in range(len(tmesh)):
-    #     # print("i===",tmesh)
-    #     t=tmesh[i]
-    #     angleacc[i]=((((alpha_y*t**2)/2 + beta_y*t + gamma_y)/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5) - (((alpha_z*t**2)/2 + beta_z*t + gamma_z)*((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0))/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2)*((2*((alpha_y*t**2)/2 + beta_y*t + gamma_y)*((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0))/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2 - (2*((alpha_z*t**2)/2 + beta_z*t + gamma_z)*((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0)**2)/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**3))/(((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0)**2/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2 + 1)**2 - ((beta_y + alpha_y*t)/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5) - ((beta_z + alpha_z*t)*((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0))/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2 - (2*((alpha_y*t**2)/2 + beta_y*t + gamma_y)*((alpha_z*t**2)/2 + beta_z*t + gamma_z))/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2 + (2*((alpha_z*t**2)/2 + beta_z*t + gamma_z)**2*((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0))/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**3)/(((alpha_y*t**3)/6 + (beta_y*t**2)/2 + gamma_y*t + ay0)**2/((alpha_z*t**3)/6 + (beta_z*t**2)/2 + gamma_z*t + az0 + 49/5)**2 + 1)
-
 
     c10=-(alpha_y/24*tmesh**4+beta_y/6*tmesh**3+gamma_y/2*tmesh**2+ay0*tmesh+vy0-ubv)
     c11=-(lbv-(alpha_y/24*tmesh**4+beta_y/6*tmesh**3+gamma_y/2*tmesh**2+ay0*tmesh+vy0))
@@ -142,10 +141,7 @@ def ineqmycon(x):
     return (np.hstack((c2,c3,c4,c5,c6,c10,c11,c12,c13))>-0.05).all()
 
 def main():
-    startsolvetime=time.time()
-    ineqmycon(np.array([1]))
-    running_time = time.time() - startsolvetime
-    print(running_time)
+
     Initial_guess=np.array([0.1])
     # while True:
     Initial_guess=Initial_guess*0.5
@@ -169,13 +165,11 @@ def main():
     running_time = end - start0
     print('time cost : %.5f sec' % running_time)
     print(Initial_guess[0], ineqmycon(Initial_guess))
-    Initial_guess[0]=1.29
+    # Initial_guess[0]=0.3
 
     times=np.linspace(0,1,round(Initial_guess[0]*controlfreq))*Initial_guess
 
     t=Initial_guess[0]
-    y0,z0,vy0,vz0,ay0,az0=[-0.06390421092510223, 0.53312087059021, 0.028850866481661797, -0.07197022438049316, 0.021810559555888176, 0.010911194607615471]
-    ytf,ztf,vytf,vztf,aytf,aztf=[0.505578, 0.619863, 3.097399, -0.033222, -0.007129, 0.805617]
     tarray=np.array([[60/t**3,-360/t**4,720/t**5],[-24/t**2,168/t**3,-360/t**4],[3/t,-24/t**2,60/t**3]])
 
     tarray=np.array([[60/t**3,-360/t**4,720/t**5],[-24/t**2,168/t**3,-360/t**4],[3/t,-24/t**2,60/t**3]])

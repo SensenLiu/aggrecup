@@ -1,6 +1,10 @@
 std_msgs/Header header
 int16 discrepointpersecond
 int16 arraylength
+float32 currentwall_y
+float32 currentwall_z
+float32 currentwall_vy
+float32 currentwall_vz
 float32[] stateXarray
 float32[] stateYarray
 float32[] stateZarray

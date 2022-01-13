@@ -72,6 +72,7 @@ mavros_msgs::State current_state;           //无人机当前状态
 nav_msgs::Odometry pose_drone_odom;       //读入的无人机drone当前位置，x，y，z+姿态
 sensor_msgs::Imu pose_drone_Imu;       //读入的无人机drone当前位置，x，y，z+姿态
 nav_msgs::Odometry pose_car_odom;       //读入car当前位置
+nav_msgs::Odometry wallpostwist_odom;       //读入car当前位置
 geometry_msgs::TwistStamped vel_drone;      //读入的无人机当前速度 线速度+角速度
 geometry_msgs::Quaternion orientation_target;   //发给无人机的姿态指令  四元数
 geometry_msgs::Vector3 angle_target;   //欧拉角
@@ -93,6 +94,7 @@ geometry_msgs::Vector3 temp_angle;
 geometry_msgs::Vector3 rpy;
 offb_posctl::controlstate controlstatearray_msg;
 offb_posctl::controlstate temp_controlstatearray_msg;
+geometry_msgs::Vector3 angle_receive;       //读入的无人机姿态（欧拉角）
 
 float thrust_target;        //期望推力
 float Yaw_Init;
@@ -171,15 +173,17 @@ void plane_pos_cb(const nav_msgs::Odometry::ConstPtr &msg){
     planeupdateflag= true;
 }
 void plane_imu_cb(const sensor_msgs::Imu::ConstPtr &msg){
+
     pose_drone_Imu = *msg;
-    Quaterniond current_q(pose_drone_Imu.orientation.w, pose_drone_Imu.orientation.x, pose_drone_Imu.orientation.y, pose_drone_Imu.orientation.z);
-    Quaterniond current_acc(0, pose_drone_Imu.linear_acceleration.x, pose_drone_Imu.linear_acceleration.y, pose_drone_Imu.linear_acceleration.z);
-    Quaterniond accinword=current_q*current_acc*current_q.conjugate();
+    angle_receive = quaternion2euler(pose_drone_Imu.orientation.x, pose_drone_Imu.orientation.y, pose_drone_Imu.orientation.z, pose_drone_Imu.orientation.w);
+//    ROS_ERROR_STREAM_THROTTLE(1,"drone angle_receive.x:"<<angle_receive.x);
+    Eigen::Quaterniond yawRot_q=Eigen::AngleAxisd(-angle_receive.z, Vector3d::UnitZ()) * Eigen::AngleAxisd(0, Vector3d::UnitY()) * Eigen::AngleAxisd(0, Vector3d::UnitX());
+    Eigen::Quaterniond current_q(pose_drone_Imu.orientation.w, pose_drone_Imu.orientation.x, pose_drone_Imu.orientation.y, pose_drone_Imu.orientation.z);
+    Eigen::Quaterniond current_acc(0, pose_drone_Imu.linear_acceleration.x, pose_drone_Imu.linear_acceleration.y, pose_drone_Imu.linear_acceleration.z);
+    Eigen::Quaterniond accinword=yawRot_q*current_q*current_acc*current_q.conjugate()*yawRot_q.conjugate();
 
     ay_ini=accinword.y();
     az_ini=accinword.z()-9.8;
-    ay_ini= ay_Filter.filter(ay_ini);
-    az_ini= az_Filter.filter(az_ini);
 }
 
 void plane_vel_cb(const geometry_msgs::TwistStamped::ConstPtr &msg){
@@ -189,6 +193,14 @@ void plane_vel_cb(const geometry_msgs::TwistStamped::ConstPtr &msg){
 void car_pos_cb(const nav_msgs::Odometry::ConstPtr &msg) {
     pose_car_odom = *msg;
 
+//    plane_expected_position.x = pose_car_odom.pose.pose.position.x; //-1 means axis difference
+//    plane_expected_position.y = pose_car_odom.pose.pose.position.y; //-1 means axis difference
+//    plane_expected_position.z = pose_car_odom.pose.pose.position.z + 0.5;
+}
+bool wallstate_receivedflag= false;
+void wall_twist_cb(const nav_msgs::Odometry::ConstPtr &msg) {
+    wallpostwist_odom = *msg;
+    wallstate_receivedflag= true;
 //    plane_expected_position.x = pose_car_odom.pose.pose.position.x; //-1 means axis difference
 //    plane_expected_position.y = pose_car_odom.pose.pose.position.y; //-1 means axis difference
 //    plane_expected_position.z = pose_car_odom.pose.pose.position.z + 0.5;
@@ -235,6 +247,8 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
     ros::Subscriber plane_velocity_sub = nh.subscribe<geometry_msgs::TwistStamped>(
             "mavros/local_position/velocity_local", 1, plane_vel_cb); //twist
     ros::Subscriber car_position_sub = nh.subscribe<nav_msgs::Odometry>("odom", 1, car_pos_cb); //车的pos+twist
+    ros::Subscriber current_pos_sub=nh.subscribe<nav_msgs::Odometry>("currenttarget_postwist",1,wall_twist_cb);
+
     ros::Subscriber plane_alt_sub = nh.subscribe<std_msgs::Float64>("mavros/global_position/rel_alt", 1, plane_alt_cb);
     ros::Subscriber controlstate_sub = nh.subscribe<offb_posctl::controlstate>("ocp/control_state", 1, controlstate_cb);
     // 【发布】飞机姿态/拉力信息 坐标系:NED系
@@ -421,6 +435,14 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
         float cur_time = get_ros_time(begin_time_02);  // 当前时间
         if (planeupdateflag && pose_drone_odom.pose.pose.position.z>=0.2)   //订阅到飞机位置则flag为true，发布完相对位置的消息后flag置false
         {
+//                ay_ini= ay_Filter.filter(vy_Der.derivation(vy_ini,cur_time));
+//                az_ini= az_Filter.filter(vz_Der.derivation(vz_ini,cur_time));
+            ay_ini= ay_Filter.filter(ay_ini);
+            az_ini= az_Filter.filter(az_ini);
+            ay_ini=min(max((double)ay_ini,-2*9.8),2*9.8);
+            az_ini=min(max((double)az_ini,-9.8),9.8);
+//                cout<<"ay_ini:"<<ay_ini<<" az_ini:"<<az_ini<<endl;
+//            if(planstopflag==false && quad_state>0)
             if(planstopflag==false)
             {
                 px_ini = pose_drone_odom.pose.pose.position.x;
@@ -430,14 +452,6 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                 vx_ini = vel_drone.twist.linear.x;
                 vy_ini = vel_drone.twist.linear.y;
                 vz_ini = vel_drone.twist.linear.z;
-//                ay_ini= ay_Filter.filter(vy_Der.derivation(vy_ini,cur_time));
-//                az_ini= az_Filter.filter(vz_Der.derivation(vz_ini,cur_time));
-//                ay_ini= ay_Filter.filter(ay_ini);
-//                az_ini= az_Filter.filter(az_ini);
-                ay_ini=min(max((double)ay_ini,-2*9.8),2*9.8);
-                az_ini=min(max((double)az_ini,-9.8),9.8);
-//                cout<<"ay_ini:"<<ay_ini<<" az_ini:"<<az_ini<<endl;
-
 
                 pz_ini=min(max((double)pz_ini, 0.2),2.5);
                 vz_ini=min(max((double)vz_ini, -5.0),5.0);
@@ -477,7 +491,7 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
         }
 
         ros::spinOnce();//刷新callback的消息
-        cout<<"-------quad_state"<<quad_state<<endl;
+        ROS_ERROR_STREAM("quad_state"<<quad_state<<endl);
         switch (quad_state) {
             case 0:
                 plane_expected_position.z=plane_expected_position.z+ascentvel*cur_time;
@@ -504,11 +518,11 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                 }
                 break;
             case 1:
-                cout<<"-------controlcounter"<<controlcounter<<endl;
+                cout<<"-------controlcounter:"<<controlcounter<<"  controlstatearray_msg.segment: "<<controlstatearray_msg.segment<<endl;
                 if(contstaterecieveflag)  //订阅到bvp计算的控制量则flag为true,用于起始时刻,还没算出bvp时
                 {
                     lefnodeindex = controlcounter;
-                    cout<<"-------lefnodeindex"<<lefnodeindex<<endl;
+//                    cout<<"-------lefnodeindex"<<lefnodeindex<<endl;
                     if (lefnodeindex < controlstatearray_msg.arraylength)
                     {
 //                        Here,we used lefnodeindex-1, it is because we consider that the pos and vel error is in next state, not in current state
@@ -524,7 +538,22 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                         plane_expected_acceleration.x=controlstatearray_msg.stateAXarray[lefnodeindex];
                         plane_expected_acceleration.y=controlstatearray_msg.stateAYarray[lefnodeindex];
                         plane_expected_acceleration.z=controlstatearray_msg.stateAZarray[lefnodeindex];
+                    }else
+                    {
+                        plane_expected_position.x=controlstatearray_msg.stateXarray[controlstatearray_msg.stateXarray.size()-1];
+                        plane_expected_position.y=controlstatearray_msg.stateYarray[controlstatearray_msg.stateXarray.size()-1];
+                        plane_expected_position.z=controlstatearray_msg.stateZarray[controlstatearray_msg.stateXarray.size()-1];
+
+
+                        plane_expected_velocity.x=controlstatearray_msg.stateVXarray[controlstatearray_msg.stateXarray.size()-1];
+                        plane_expected_velocity.y=controlstatearray_msg.stateVYarray[controlstatearray_msg.stateXarray.size()-1];
+                        plane_expected_velocity.z=controlstatearray_msg.stateVZarray[controlstatearray_msg.stateXarray.size()-1];
+
+                        plane_expected_acceleration.x=controlstatearray_msg.stateAXarray[controlstatearray_msg.stateXarray.size()-1];
+                        plane_expected_acceleration.y=controlstatearray_msg.stateAYarray[controlstatearray_msg.stateXarray.size()-1];
+                        plane_expected_acceleration.z=controlstatearray_msg.stateAZarray[controlstatearray_msg.stateXarray.size()-1];
                     }
+                    ROS_ERROR_STREAM( "plane_expected_position.y:"<<plane_expected_position.y<<" plane_expected_velocity.y:"<<plane_expected_velocity.y<<" current y: "<<pose_drone_odom.pose.pose.position.y<<" vel_drone.twist.linear.y: "<<vel_drone.twist.linear.y);
                     controlcounter++;
 //                    if(controlcounter>=controlstatearray_msg.arraylength ||controlstatearray_msg.arraylength<=10)
 //                    if((fabs(plane_expected_position.y-controlstatearray_msg.stateYarray[controlstatearray_msg.arraylength-1])<=0.1 && fabs(plane_expected_position.z-controlstatearray_msg.stateZarray[controlstatearray_msg.arraylength-1])<=0.1))
@@ -533,7 +562,7 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
 //                        planstopflag= true;
 //                        ROS_ERROR_STREAM( "plane_expected_position.y: "<<plane_expected_position.y<<" plane_expected_position.z: "<<plane_expected_position.z<<" arraylength:"<<controlstatearray_msg.arraylength);
 //                    }
-                    if((controlstatearray_msg.arraylength-controlcounter)<0.15*controlstatearray_msg.discrepointpersecond)
+                    if((controlstatearray_msg.arraylength-controlcounter)<0.15*controlstatearray_msg.discrepointpersecond && controlstatearray_msg.segment==5)
                     {
                         startattitudecotrolflag=true;
                         ROS_ERROR_STREAM("startattitudecotrolflag:"<<startattitudecotrolflag<<" leftindex: "<<lefnodeindex<<" left_controlpoints: "<<controlstatearray_msg.arraylength-controlcounter<<" plane_expected_position.z: "<<plane_expected_position.z<<" pos_drone.pose.position.z: "<<pose_drone_odom.pose.pose.position.z);
@@ -541,7 +570,8 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                     }
                     if(controlcounter>=controlstatearray_msg.arraylength)
                     {
-                        ROS_ERROR_STREAM( "plane_expected_position.y:"<<plane_expected_position.y<<" plane_expected_position.z:"<<plane_expected_position.z<<" current z: "<<pose_drone_odom.pose.pose.position.z);
+                        ROS_ERROR_STREAM( "plane_expected_position.y:"<<plane_expected_position.y<<" plane_expected_position.z:"<<plane_expected_position.z<<" current y: "<<pose_drone_odom.pose.pose.position.y<<" current z: "<<pose_drone_odom.pose.pose.position.z<<" controlstatearray_msg.segment: "<<controlstatearray_msg.segment
+                        <<" controlstatearray_msg.arraylength: "<<controlstatearray_msg.arraylength);
                         quad_state=2;
                         wall_zaxis << 0,controlstatearray_msg.stateAYarray[controlstatearray_msg.arraylength-1]/9.8,(controlstatearray_msg.stateAZarray[controlstatearray_msg.arraylength-1]+9.8)/9.8;
                         wall_yaxis=wall_zaxis.cross(wall_xaxis);
@@ -554,6 +584,8 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                 planned_postwist_msg.pose.pose.position.x=plane_expected_position.x;
                 planned_postwist_msg.pose.pose.position.y=plane_expected_position.y;
                 planned_postwist_msg.pose.pose.position.z=plane_expected_position.z;
+                planned_postwist_msg.twist.twist.linear.y=plane_expected_velocity.y;
+                planned_postwist_msg.twist.twist.linear.z=plane_expected_velocity.z;
                 planned_postwist_msg.pose.pose.orientation.x=angle_target.x;
                 planned_postwist_msg.twist.twist.angular.y=PIDVY.Output;
                 planned_postwist_msg.twist.twist.angular.z=PIDVZ.Output;
@@ -575,25 +607,29 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                 tempCurrentPx=pose_drone_odom.pose.pose.position.x;
                 tempCurrentPy=pose_drone_odom.pose.pose.position.y;
                 tempCurrentPz=pose_drone_odom.pose.pose.position.z;
-                dronetowall_pos_inworld << 0.0, tempCurrentPy-controlstatearray_msg.wall_y,tempCurrentPz-controlstatearray_msg.wall_z;
-                dronetowall_vel_inworld << 0.0, vel_drone.twist.linear.y-controlstatearray_msg.wall_vy,vel_drone.twist.linear.z-controlstatearray_msg.wall_vz;
-                ROS_ERROR_STREAM("current Px:"<<tempCurrentPx<<" Py: "<<tempCurrentPy<<" Pz: "<<tempCurrentPz<<" pitch:"<<temp_angle.x);
-//                ROS_ERROR_STREAM("dronetowall_pos_inworld :"<<dronetowall_pos_inworld<<"wall_zaxis :"<<wall_zaxis<<" dronetowall_pos_inworld.dot(wall_zaxis) :"<<dronetowall_pos_inworld.dot(wall_zaxis)<<" dronetowall_vel_inworld.dot(wall_yaxis): "<<dronetowall_vel_inworld.dot(wall_yaxis));
+                if(wallstate_receivedflag)
+                {
+                    dronetowall_pos_inworld << 0.0, tempCurrentPy-(wallpostwist_odom.pose.pose.position.y),tempCurrentPz-(wallpostwist_odom.pose.pose.position.z);
+                    dronetowall_vel_inworld << 0.0, vel_drone.twist.linear.y-wallpostwist_odom.twist.twist.linear.y,vel_drone.twist.linear.z-wallpostwist_odom.twist.twist.linear.z;
+                }else{
+                    dronetowall_pos_inworld << 0.0, tempCurrentPy-controlstatearray_msg.rendezvouswall_y,tempCurrentPz-controlstatearray_msg.rendezvouswall_z;
+                    dronetowall_vel_inworld << 0.0, vel_drone.twist.linear.y-controlstatearray_msg.rendezvouswall_vy,vel_drone.twist.linear.z-controlstatearray_msg.rendezvouswall_vy;
+
+                }
+                ROS_ERROR_STREAM(" Py: "<<tempCurrentPy<<" Pz: "<<tempCurrentPz<<" roll:"<<angle_receive.x<<" dronetowall_pos_inworld.dot(wall_zaxis): "<<dronetowall_pos_inworld.dot(wall_zaxis));
                 if(dronetowall_pos_inworld.dot(wall_zaxis)<-0.2||dronetowall_vel_inworld.dot(wall_yaxis)<-1.5)
 //                if(tempCurrentPz<controlstatearray_msg.wall_z-0.25||tempCurrentPy<controlstatearray_msg.wall_y-0.20)
                 {
                     quad_state=3;
                     tempcounter=0;
-                    ROS_ERROR_STREAM("tempCurrentPz:"<<tempCurrentPz<<" controlstatearray_msg.wall_z: "<<controlstatearray_msg.wall_z<<" vel_read.z: "<<vel_drone.twist.linear.z);
-
+                    ROS_ERROR_STREAM("tempCurrentPz:"<<tempCurrentPz<<" rendezvouswall_z: "<<controlstatearray_msg.rendezvouswall_z<<" vel_read.z: "<<vel_drone.twist.linear.z);
                 }
                 if(tempcounter>=30&&(dronetowall_pos_inworld.dot(wall_zaxis)>=-0.2&&dronetowall_vel_inworld.dot(wall_yaxis)>=-1.5))
 //                if(tempcounter>=30&&tempCurrentPz>=controlstatearray_msg.wall_z-0.15)
                 {
                     quad_state=4;
                     tempcounter=0;
-                    ROS_ERROR_STREAM("tempCurrentPz:"<<tempCurrentPz<<" controlstatearray_msg.wall_z: "<<controlstatearray_msg.wall_z<<" vel_read.z: "<<vel_drone.twist.linear.z);
-                }
+                    ROS_ERROR_STREAM("Success-tempCurrentPz:"<<tempCurrentPz<<" rendezvouswall_z: "<<controlstatearray_msg.rendezvouswall_z<<" vel_read.z: "<<vel_drone.twist.linear.z);                }
                 orientation_target = euler2quaternion(-atan(controlstatearray_msg.stateAYarray[lefnodeindex]/(controlstatearray_msg.stateAZarray[lefnodeindex]+9.8)), 0, angle_target.z);
                 thrust_target  = param.THR_HOVER*cos(-atan(controlstatearray_msg.stateAYarray[lefnodeindex]/(controlstatearray_msg.stateAZarray[lefnodeindex]+9.8)))*cos(0);   //目标推力值 to alleviate the gravity's component along the drone's z axis
                 thrust_target  = max((double)thrust_target,param.THR_HOVER*0.5);   //目标推力值,只是用来保证提供扭矩，the drone is easy to fall freely and crash
