@@ -425,6 +425,7 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
     actual_path.header.stamp=ros::Time::now();
     actual_path.header.frame_id="ground_link";
     int pathseq=0;
+    double hoverheight=0.6;
 
     Vector3d dronetowall_pos_inworld(0,0,0);
     Vector3d dronetowall_vel_inworld(0,0,0);
@@ -495,7 +496,7 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
         switch (quad_state) {
             case 0:
                 plane_expected_position.z=plane_expected_position.z+ascentvel*cur_time;
-                plane_expected_position.z=min(plane_expected_position.z,0.5);
+                plane_expected_position.z=min(plane_expected_position.z,hoverheight);
                 plane_expected_position.x=0;
                 plane_expected_position.y=0;
                 plane_expected_velocity.x=0;
@@ -507,7 +508,7 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
 
                 pix_controller(cur_time);
 
-                if(plane_expected_position.z>=0.5)
+                if(plane_expected_position.z>=hoverheight)
                 {
                     tempcounter++;
                     if(tempcounter>=150)
@@ -518,7 +519,7 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                 }
                 break;
             case 1:
-                cout<<"-------controlcounter:"<<controlcounter<<"  controlstatearray_msg.segment: "<<controlstatearray_msg.segment<<endl;
+                cout<<"-------controlcounter:"<<controlcounter<<"  controlstatearray_msg.tfnodenumber: "<<controlstatearray_msg.tfnodenumber<<endl;
                 if(contstaterecieveflag)  //订阅到bvp计算的控制量则flag为true,用于起始时刻,还没算出bvp时
                 {
                     lefnodeindex = controlcounter;
@@ -562,15 +563,15 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
 //                        planstopflag= true;
 //                        ROS_ERROR_STREAM( "plane_expected_position.y: "<<plane_expected_position.y<<" plane_expected_position.z: "<<plane_expected_position.z<<" arraylength:"<<controlstatearray_msg.arraylength);
 //                    }
-                    if((controlstatearray_msg.arraylength-controlcounter)<0.15*controlstatearray_msg.discrepointpersecond && controlstatearray_msg.segment==5)
+                    if((controlstatearray_msg.arraylength-controlcounter)<0.15*controlstatearray_msg.discrepointpersecond && controlstatearray_msg.tfnodenumber==5)
                     {
                         startattitudecotrolflag=true;
                         ROS_ERROR_STREAM("startattitudecotrolflag:"<<startattitudecotrolflag<<" leftindex: "<<lefnodeindex<<" left_controlpoints: "<<controlstatearray_msg.arraylength-controlcounter<<" plane_expected_position.z: "<<plane_expected_position.z<<" pos_drone.pose.position.z: "<<pose_drone_odom.pose.pose.position.z);
 //                        ROS_ERROR_STREAM( "(controlstatearray_msg.arraylength-controlcounter): "<<(controlstatearray_msg.arraylength-controlcounter)<<" lefttime:"<<((controlstatearray_msg.arraylength-controlcounter)/controlstatearray_msg.discrepointpersecond));
                     }
-                    if(controlcounter>=controlstatearray_msg.arraylength)
+                    if(controlcounter>=controlstatearray_msg.arraylength && controlstatearray_msg.tfnodenumber==5)
                     {
-                        ROS_ERROR_STREAM( "plane_expected_position.y:"<<plane_expected_position.y<<" plane_expected_position.z:"<<plane_expected_position.z<<" current y: "<<pose_drone_odom.pose.pose.position.y<<" current z: "<<pose_drone_odom.pose.pose.position.z<<" controlstatearray_msg.segment: "<<controlstatearray_msg.segment
+                        ROS_ERROR_STREAM( "plane_expected_position.y:"<<plane_expected_position.y<<" plane_expected_position.z:"<<plane_expected_position.z<<" current y: "<<pose_drone_odom.pose.pose.position.y<<" current z: "<<pose_drone_odom.pose.pose.position.z<<" controlstatearray_msg.tfnodenumber: "<<controlstatearray_msg.tfnodenumber
                         <<" controlstatearray_msg.arraylength: "<<controlstatearray_msg.arraylength);
                         quad_state=2;
                         wall_zaxis << 0,controlstatearray_msg.stateAYarray[controlstatearray_msg.arraylength-1]/9.8,(controlstatearray_msg.stateAZarray[controlstatearray_msg.arraylength-1]+9.8)/9.8;

@@ -2,7 +2,7 @@ std_msgs/Header header
 int16 discrepointpersecond
 int16 inicounter
 int16 arraylength
-int16 segment
+int16 tfnodenumber
 float32 currentwall_x
 float32 currentwall_y
 float32 currentwall_z

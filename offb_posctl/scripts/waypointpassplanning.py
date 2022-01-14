@@ -37,7 +37,7 @@ phi=1.22
 normspeed=-0.5
 tangentialspeed=0.3
 xtf_wall=0.0
-ytf_wall=10.0
+ytf_wall=3.5
 ztf_wall=1.40 # true is 1.94
 vxtf_wall=0.0
 vytf_wall=0.0
@@ -89,6 +89,8 @@ lbz=0.2
 ubz=2.5
 lbv=-5
 ubv=5
+dyna_lbv=lbv
+dyna_ubv=ubv
 currentupdateflag = False
 wallstateupdateflag = False
 
@@ -103,26 +105,59 @@ waypoint=[[0.505578,0.619863,3.097399,-0.033222,-0.007129,0.805617],
           [4.166977,0.593732,4.446313,-0.154658,0.514369,0.832596],
           [6.406481,0.618986,4.573474,0.337406,1.566063,1.382526],
           [8.696024,0.961586,4.159587,1.029460,-3.553221,1.19400],
-          [10,      1.4,     delta_vytf,delta_vztf,aytf, aztf]
-]
+          [10,      1.4,     0.5726434,0.109907,aytf, aztf]]
 waypoint=array(waypoint)
-segmentstate=0
-nearthreshold_y=3
+temp_waypoint=waypoint.copy()
+nearthreshold_y=0.5
 
-def getterminateStateTime(t,solutionqualitycounter):
-    global y0,xtf_wall,ytf_wall,ztf_wall,vxtf_wall,vytf_wall,vztf_wall,lastwallupdatetime, wallstate_msg,wallstateupdateflag
-    global waypoint,segmentstate,nearthreshold_y
-    temp_waypoint=waypoint.copy()
+def getInitialtrajectory(waypoint,controlfreq):
+    t=0.5
+    times=linspace(0, 1, round(t*controlfreq)+1)*t
+    Initialtrajectory=array([[],[],[],[],[],[]])
+    for i in range(0,len(waypoint)-1):
+        y0,z0,vy0,vz0,ay0,az0=waypoint[i,:]
+        ytf,ztf,vytf,vztf,aytf,aztf=waypoint[i+1,:]
+        tarray=array([[60/t**3,-360/t**4,720/t**5],[-24/t**2,168/t**3,-360/t**4],[3/t,-24/t**2,60/t**3]])
+
+        alpha_y,beta_y,gamma_y=dot(tarray,array([aytf-ay0,vytf-vy0-ay0*t,ytf-y0-vy0*t-0.5*ay0*t**2]))
+        alpha_z,beta_z,gamma_z=dot(tarray,array([aztf-az0,vztf-vz0-az0*t,ztf-z0-vz0*t-0.5*az0*t**2]))
+
+        y=alpha_y/120*times**5+beta_y/24*times**4+gamma_y/6*times**3+ay0/2*times**2+vy0*times+y0
+        vy=alpha_y/24*times**4+beta_y/6*times**3+gamma_y/2*times**2+ay0*times+vy0
+        ay=alpha_y/6*times**3+beta_y/2*times**2+gamma_y*times+ay0
+
+        z=alpha_z/120*times**5+beta_z/24*times**4+gamma_z/6*times**3+az0/2*times**2+vz0*times+z0
+        vz=alpha_z/24*times**4+beta_z/6*times**3+gamma_z/2*times**2+az0*times+vz0
+        az=alpha_z/6*times**3+beta_z/2*times**2+gamma_z*times+az0
+        if(i>0):
+            y=y[1:]
+            z=z[1:]
+            vy=vy[1:]
+            vz=vz[1:]
+            ay=ay[1:]
+            az=az[1:]
+        Initialtrajectory=hstack((Initialtrajectory,np.vstack((y,vy,ay,z,vz,az))))
+
+    Timetemplate=np.vstack(( linspace(-t*(len(waypoint)-1),0,Initialtrajectory.shape[1]), np.ones((1,Initialtrajectory.shape[1])), np.zeros((1,Initialtrajectory.shape[1])),
+                             linspace(-t*(len(waypoint)-1),0,Initialtrajectory.shape[1]), np.ones((1,Initialtrajectory.shape[1])), np.zeros((1,Initialtrajectory.shape[1])) ))
+    return Initialtrajectory,Timetemplate
+
+
+def getterminateStateTime(t):
+    global y0,xtf_wall,ytf_wall,ztf_wall,vxtf_wall,vytf_wall,vztf_wall,wallstateupdateflag
+    global waypoint,nearthreshold_y,dyna_lbv,dyna_ubv,temp_waypoint
+    pointcounter=1
+    segmentstate=0
+    tfnodenumber=0
 
     if wallstateupdateflag:
         if((time.time()-lastwallupdatetime)*wallstate_msg.discrepointpersecond>=wallstate_msg.arraylength):
             wallstateupdateflag=False
-            return False
         wallindex=int(min(round((t+time.time()-lastwallupdatetime+1.0/60.0)*wallstate_msg.discrepointpersecond),wallstate_msg.arraylength-1))#add 1/60.0 is to compliment the latency when offboard node receive the ocplan message,
         # this is because the offb_posctl_vicon node loops in 30Hz, and the receive will latency a period, therefore we add 1/60 as the middle of 1/30 to make sure the max time error located in 1/60
         # print(wallindex)
         if wallindex>=wallstate_msg.arraylength:
-            return False
+            t=wallstate_msg.arraylength/wallstate_msg.discrepointpersecond-(time.time()-lastwallupdatetime+1.0/60.0)
 
         xtf_wall=wallstate_msg.stateXarray[wallindex]
         vxtf_wall=wallstate_msg.stateVXarray[wallindex]
@@ -132,14 +167,13 @@ def getterminateStateTime(t,solutionqualitycounter):
         vztf_wall=wallstate_msg.stateVZarray[wallindex]
 
 
-    temp_waypoint[:,0]=ytf_wall-waypoint[-1,0]+waypoint[:,0]-vytf_wall*t
-    temp_waypoint[:,1]=ztf_wall-waypoint[-1,1]+waypoint[:,1]-vztf_wall*t
-    temp_waypoint[:,2]=vytf_wall+waypoint[:,2]
-    temp_waypoint[:,3]=vztf_wall+waypoint[:,3]
-    temp_lbv=lbv+vytf_wall
-    temp_ubv=ubv+vytf_wall
-    pointcounter=1
-    segmentstate=0
+    temp_waypoint[:,0]=ytf_wall-waypoint[-1,0]+waypoint[:,0]-(vytf_wall+delta_vytf-waypoint[-1,2])*linspace(2.5,0,6)
+    temp_waypoint[:,1]=ztf_wall-waypoint[-1,1]+waypoint[:,1]-(vztf_wall+delta_vztf-waypoint[-1,3])*linspace(2.5,0,6)
+    temp_waypoint[:,2]=(vytf_wall+delta_vytf-waypoint[-1,2])+waypoint[:,2]
+    temp_waypoint[:,3]=(vztf_wall+delta_vztf-waypoint[-1,3])+waypoint[:,3]
+    dyna_lbv=lbv+(vytf_wall+delta_vytf-waypoint[-1,2])
+    dyna_ubv=ubv+(vytf_wall+delta_vytf-waypoint[-1,2])
+
     while not (rospy.is_shutdown()) and pointcounter<=waypoint.shape[0]-1:
         if y0>=temp_waypoint[pointcounter-1,0]:
             segmentstate=pointcounter
@@ -151,28 +185,29 @@ def getterminateStateTime(t,solutionqualitycounter):
         if abs(temp_waypoint[segmentstate,0]-y0)<nearthreshold_y :
             ytf,ztf,vytf,vztf,aytf,aztf=temp_waypoint[segmentstate+1,:]
             t=t-(waypoint.shape[0]-2-segmentstate)*0.5
+            tfnodenumber=segmentstate+1
             # print("jump",'y0',y0,'temp_waypoint[segmentstate,0]',temp_waypoint[segmentstate,0] )
         else:
             ytf,ztf,vytf,vztf,aytf,aztf=temp_waypoint[segmentstate,:]
             t=t-(waypoint.shape[0]-1-segmentstate)*0.5
+            tfnodenumber=segmentstate
     else:
         ytf,ztf,vytf,vztf,aytf,aztf=temp_waypoint[segmentstate,:]
         t=t-(waypoint.shape[0]-1-segmentstate)*0.5
+        tfnodenumber=segmentstate
 
-    # print("segment-----t----",t)
-
-    return ytf,ztf,vytf,vztf,aytf,aztf,t,segmentstate,
+    return ytf,ztf,vytf,vztf,aytf,aztf,t,tfnodenumber
 # Constraint
-def ineqmycon(x,solutionqualitycounter):
+def ineqmycon(x):
     global y0,z0,vy0,vz0,ay0,az0, ytf,ztf,vytf,vztf,aytf,aztf, thrustmax, angleaccdmax, lbz, ubz, lbv, ubv
 
-    ytf,ztf,vytf,vztf,aytf,aztf,t,segmentstate=getterminateStateTime(x,solutionqualitycounter)
+    ytf,ztf,vytf,vztf,aytf,aztf,t,tfnodenumber=getterminateStateTime(x)
     # print('time in---time out',x,t,y0,z0,vy0,vz0,ay0,az0, ytf,ztf,vytf,vztf,aytf,aztf)
     if t<0:
         return False
-    # t=1.57 # for debug
-    # y0,z0,vy0,vz0,ay0,az0=[-0.06390421092510223, 0.53312087059021, 0.028850866481661797, -0.07197022438049316, 0.021810559555888176, 0.010911194607615471]
-    # ytf,ztf,vytf,vztf,aytf,aztf=[0.505578, 0.619863, 3.097399, -0.033222, -0.007129, 0.805617]
+    # t=1.01 # for debug
+    # y0,z0,vy0,vz0,ay0,az0=[-0.019060520455241203, 0.44569042325019836, -0.03030611202120781, -0.028910841792821884, 0.00445199990645051, 0.001063051400706172]
+    # ytf,ztf,vytf,vztf,aytf,aztf=[2.088410995891304, 0.6366621325246065, 3.532426002054348, 0.08544493373769671, 3.88221, -0.092808]
     # print("t----wallindex----ytf:",t,wallindex,ytf)
     tarray=array([[60/t**3,-360/t**4,720/t**5],[-24/t**2,168/t**3,-360/t**4],[3/t,-24/t**2,60/t**3]])
     alpha_y,beta_y,gamma_y=dot(tarray,array([aytf-ay0,vytf-vy0-ay0*t,ytf-y0-vy0*t-0.5*ay0*t**2]))
@@ -202,10 +237,10 @@ def ineqmycon(x,solutionqualitycounter):
     ##velocity constraints
     vy=alpha_y/24*tmesh**4+beta_y/6*tmesh**3+gamma_y/2*tmesh**2+ay0*tmesh+vy0
     vz=alpha_z/24*tmesh**4+beta_z/6*tmesh**3+gamma_z/2*tmesh**2+az0*tmesh+vz0
-    c10=vy-ubv
-    c11=lbv-vy
-    c12=vz-ubv
-    c13=lbv-vz
+    c10=vy-dyna_ubv
+    c11=dyna_lbv-vy
+    c12=vz-dyna_ubv
+    c13=dyna_lbv-vz
     if(sum(hstack((c10,c11,c12,c13))>0.05)>0):
         return False
 
@@ -302,13 +337,17 @@ def main():
     y,vy,ay,z,vz,az,lastarraylength=0,0,0,0,0,0,0
     controlfreq=30
     planstoptime=0.2
+    solvetimeout=0.02
     Init_guess,increaseratio=0.1,1.5
-    searchstep,leftnode,rightnode,solutionqualitycounter,segmentstate,solveflag=1, 0.1, 5, 0,0,False
+    searchstep,leftnode,rightnode,tfnodenumber,solveflag=1, 0.1, 5,0,False
     rospy.loginfo_throttle(0.02,("Terminate state, ytf,vytf,aytf,ztf,vztf,aztf : %.2f  %.2f %.2f %.2f %.2f %.2f",ytf,vytf,aytf,ztf,vztf,aztf))
 
+    Initialtrajectory,Timetemplate=getInitialtrajectory(waypoint,controlfreq)
+    Dynamictrajectory=Initialtrajectory
+    Employedtrajectory=Dynamictrajectory
     # while not((rospy.is_shutdown())): ## test the runtime of the core function
     #     startsolvetime=time.time()
-    #     ineqmycon(10,solutionqualitycounter)
+    #     ineqmycon(10)
     #     running_time = time.time() - startsolvetime
     #     print(running_time)
 
@@ -344,13 +383,13 @@ def main():
             startsolvetime=time.time()
 
             while rightnode-leftnode>0.2 or solveflag==False:
-                solveflag=ineqmycon(leftnode,solutionqualitycounter)
+                solveflag=ineqmycon(leftnode)
                 # print("solveflag,leftnode",solveflag,leftnode)
                 if solveflag==True:
                     rightnode=leftnode
                     leftnode=max(rightnode-searchstep,Init_guess)
                     while(rightnode-leftnode>0.1):# once the feasible rightnode is found, the two separated method will be used to find the minimum feasbile solve
-                        if ineqmycon((leftnode+rightnode)/2.0,solutionqualitycounter)==False:
+                        if ineqmycon((leftnode+rightnode)/2.0)==False:
                             leftnode=(leftnode+rightnode)/2.0
                         else:
                             rightnode=(leftnode+rightnode)/2.0
@@ -360,25 +399,25 @@ def main():
                 else:
                     if leftnode>=rightnode:
                         if searchstep==0.05:
-                            ytf,ztf,vytf,vztf,aytf,aztf,t,segmentstate=getterminateStateTime(rightnode,solutionqualitycounter)
+                            ytf,ztf,vytf,vztf,aytf,aztf,t,tfnodenumber=getterminateStateTime(rightnode)
                             # print('cannot solve-Init_guess %.2f' % Init_guess,  'y0:%.2f' % y0,  'vy0:%.2f' %vy0,  'ay0:%.2f' % ay0,   'z0:%.2f' % z0,   'vz0:%.2f' % vz0,
                             #     'az0:%.2f' %az0,  'ytf:%.2f' % ytf,  'vytf:%.2f' % vytf,  'aytf:%.2f' % aytf,   'ztf:%.2f' % ztf,   'vztf:%.2f' % vztf, 'aztf:%.2f' % aztf,
-                            #     'rightnode %.2f' % rightnode, 't:%.2f' % t, 'segmentstate %.1f' % segmentstate)
+                            #     'rightnode %.2f' % rightnode, 't:%.2f' % t, 'tfnodenumber %.1f' % tfnodenumber)
                             rospy.loginfo_throttle(0.02,('cannot solve-Init_guess %.2f' % Init_guess,  'y0: %.2f' % y0, 'z0:%.2f' % z0,
-                            'ytf:%.2f' % ytf,  'vyft: %.2f' % vytf, 'ztf:%.2f' % ztf, 'rightnode %.2f' % rightnode, 't:%.2f' % t, 'segmentstate %d' % segmentstate))
+                            'ytf:%.2f' % ytf,  'vyft: %.2f' % vytf, 'ztf:%.2f' % ztf, 'rightnode %.2f' % rightnode, 't:%.2f' % t, 'tfnodenumber %d' % tfnodenumber))
                             leftnode=0.1
                             break
                         leftnode=Init_guess
                         searchstep=max(searchstep/2,0.01)
                     leftnode=min(leftnode+searchstep,rightnode)
                 # print("searchstep--",searchstep)
-                if time.time()-startsolvetime>=0.03:
-                    ytf,ztf,vytf,vztf,aytf,aztf,t,segmentstate=getterminateStateTime(rightnode,solutionqualitycounter)
+                if time.time()-startsolvetime>=solvetimeout:
+                    ytf,ztf,vytf,vztf,aytf,aztf,t,tfnodenumber=getterminateStateTime(rightnode)
                     # print('solvetimeout-Init_guess %.2f' % Init_guess,  'y0:%.2f' % y0,  'vy0:%.2f' %vy0,  'ay0:%.2f' % ay0,   'z0:%.2f' % z0,   'vz0:%.2f' % vz0,
                     #       'az0:%.2f' %az0,  'ytf:%.2f' % ytf,  'vytf:%.2f' % vytf,  'aytf:%.2f' % aytf,   'ztf:%.2f' % ztf,   'vztf:%.2f' % vztf, 'aztf:%.2f' % aztf,
-                    #       't:%.2f' % t, 'segmentstate %.1f' % segmentstate)
+                    #       't:%.2f' % t, 'tfnodenumber %.1f' % tfnodenumber)
                     rospy.loginfo_throttle(0.02,('timeout solve-Init_guess %.2f' % Init_guess,  'y0:%.2f' % y0, 'z0:%.2f' % z0,
-                     'ytf:%.2f' % ytf,  'ztf:%.2f' % ztf, 'vyft: %.2f' % vytf, 'rightnode %.2f' % rightnode, 't:%.2f' % t, 'segmentstate %d' % segmentstate))
+                     'ytf:%.2f' % ytf,  'ztf:%.2f' % ztf, 'vyft: %.2f' % vytf, 'rightnode %.2f' % rightnode, 't:%.2f' % t, 'tfnodenumber %d' % tfnodenumber))
                     rightnode=rightnode/increaseratio # to avoid rightnode increase by multiply 1.5 many times in rightnode=rightnode*1.5
                     leftnode=0.1
                     break
@@ -389,27 +428,24 @@ def main():
                 lastsolved_time=time.time()
                 lastsolveduration=rightnode-(controlstate_msg.inicounter/controlfreq)
                 residualduration=lastsolveduration
-                ytf,ztf,vytf,vztf,aytf,aztf,t,segmentstate=getterminateStateTime(lastsolveduration,solutionqualitycounter)# this function is very important. because when rightnode-leftnode<0.1 and the loop break.
+                ytf,ztf,vytf,vztf,aytf,aztf,t,tfnodenumber=getterminateStateTime(lastsolveduration)# this function is very important. because when rightnode-leftnode<0.1 and the loop break.
                 # it is very probabily that the t is left node and ineqmycon(leftnode) will change the teriminate condition to former time point.
                 # Therefore, the getterminateStateTime() fucntion use the rightnode time to calculate the rendezvous point again and recover the
                 # terminal condition represented by global arguments in ineqmycon() fucntion
                 # print('controlstate_msg.inicounter/controlfreq : %.5f sec' % (controlstate_msg.inicounter/controlfreq))
                 segmenttime=t+(controlstate_msg.inicounter/controlfreq)# recovery t to the duration corresponding planning start state
-                rospy.loginfo_throttle(0.02,('solved-computercost : %.5f' % running_time, 'segmenttime : %.2f' % segmenttime, 'segment %d' % segmentstate,
+                rospy.loginfo_throttle(0.02,('solved-computercost : %.5f' % running_time, 'segmenttime : %.2f' % segmenttime, 'tfnodenumber %d' % tfnodenumber,
                 'residualduration %.2f' % residualduration,'y0: %.3f' % y0,'ytf: %.3f' % ytf, 'ztf : %.2f' % ztf,'vyft: %.2f' % vytf))
-                solutionqualitycounter=0
             else:
                 residualduration=max(lastsolveduration-(time.time()-lastsolved_time)-(controlstate_msg.inicounter/controlfreq),0)
                 if(residualduration>planstoptime):
-                    ytf,ztf,vytf,vztf,aytf,aztf,t,segmentstate=getterminateStateTime(residualduration,solutionqualitycounter)
+                    ytf,ztf,vytf,vztf,aytf,aztf,t,tfnodenumber=getterminateStateTime(residualduration)
                     if t>0:
                         segmenttime=t+(controlstate_msg.inicounter/controlfreq)# recovery t to the duration corresponding planning start state
                         leftnode,rightnode=residualduration,residualduration ## for next solve
-                        rospy.loginfo_throttle(0.02,('supple-computercost : %.5f' % running_time, 'segmenttime : %.2f' % segmenttime, 'segment %d' % segmentstate,
+                        rospy.loginfo_throttle(0.02,('supple-computercost : %.5f' % running_time, 'segmenttime : %.2f' % segmenttime, 'tfnodenumber %d' % tfnodenumber,
                         'residualduration %.2f' % residualduration,'y0: %.3f' % y0,'ytf: %.3f' % ytf, 'ztf : %.2f' % ztf,'vyft: %.2f' % vytf))
-                solutionqualitycounter=min(solutionqualitycounter+1,3)
-                print('solutionqualitycounter',solutionqualitycounter)
-            if(residualduration<=1.1 and residualduration>0):
+            if(residualduration<=0.8 and residualduration>0):
                 increaseratio=1.0
 
             if residualduration>planstoptime:
@@ -421,7 +457,7 @@ def main():
                     controlstate_msg.inicounter = (int)(min(2,controlstate_msg.arraylength))
                     controlstate_msg.timecost=running_time
                     controlstate_msg.increaseratio=increaseratio
-                    controlstate_msg.segment=segmentstate
+                    controlstate_msg.tfnodenumber=tfnodenumber
                     lastarraylength=controlstate_msg.arraylength
                     if wallstateupdateflag:
                         controlstate_msg.currentwall_x=wallstate_msg.currentwall_x
@@ -463,7 +499,8 @@ def main():
                     # print("controlstate_msg.rendezvouswall_y", controlstate_msg.rendezvouswall_y)
 
                     # print("Terminate state before calcualted, t,ytf,vytf,aytf,ztf,vztf,aztf,y0,vy0,ay0,z0,vz0,az0",t,ytf,vytf,aytf,ztf,vztf,aztf,y0,vy0,ay0,z0,vz0,az0)
-
+                    Dynamictrajectory=np.dot(np.diag([(vytf_wall+delta_vytf-waypoint[-1,2]),(vytf_wall+delta_vytf-waypoint[-1,2]),0,(vztf_wall+delta_vztf-waypoint[-1,3]),(vztf_wall+delta_vztf-waypoint[-1,3]),0]), Timetemplate)+\
+                                      Initialtrajectory+array(([ytf_wall-Initialtrajectory[0,-1]],[0],[0],[ztf_wall-Initialtrajectory[3,-1]],[0],[0]))
                     times=linspace(0, 1, controlstate_msg.arraylength)*t
                     tarray=array([[60/t**3,-360/t**4,720/t**5],[-24/t**2,168/t**3,-360/t**4],[3/t,-24/t**2,60/t**3]])
 
@@ -477,6 +514,7 @@ def main():
                     z=alpha_z/120*times**5+beta_z/24*times**4+gamma_z/6*times**3+az0/2*times**2+vz0*times+z0
                     vz=alpha_z/24*times**4+beta_z/6*times**3+gamma_z/2*times**2+az0*times+vz0
                     az=alpha_z/6*times**3+beta_z/2*times**2+gamma_z*times+az0
+                    Employedtrajectory=hstack(( np.vstack((y[0:-1],vy[0:-1],ay[0:-1],z[0:-1],vz[0:-1],az[0:-1])), Dynamictrajectory[:,int(controlstate_msg.tfnodenumber*15):]))
 
                     controlstate_msg.stateXarray = full_like(times,controlstate_msg.rendezvouswall_x)
                     controlstate_msg.stateYarray = y
@@ -487,7 +525,7 @@ def main():
                     controlstate_msg.stateAXarray = zeros_like(times)
                     controlstate_msg.stateAYarray = ay
                     controlstate_msg.stateAZarray = az
-                    # print("y--------", y)
+                    # print("y last three--------", y[-3:]," vy last three--------",vy[-3:])
                 else: ## cannot solve
                     controlstate_msg.header.stamp=rospy.Time.now()
                     controlstate_msg.discrepointpersecond = controlfreq
@@ -495,7 +533,7 @@ def main():
                     controlstate_msg.inicounter = (int)(min(2,controlstate_msg.arraylength))
                     controlstate_msg.timecost=running_time
                     controlstate_msg.increaseratio=increaseratio
-                    controlstate_msg.segment=segmentstate
+                    controlstate_msg.tfnodenumber=tfnodenumber
 
                     if wallstateupdateflag:
                         controlstate_msg.currentwall_x=wallstate_msg.currentwall_x
@@ -534,18 +572,25 @@ def main():
                     controlstate_msg.rendezvouswall_vy=vytf_wall
                     controlstate_msg.rendezvouswall_vz=vztf_wall
                     controlstate_msg.parabolictime=parabolictime
-                    interceptindex=int(max(min(lastarraylength-round(t*controlfreq)-1,lastarraylength-1),0))
+                    interceptindex=min(int(round((time.time()-lastsolved_time)*controlfreq)),Employedtrajectory.shape[1])
+                    endindex=Employedtrajectory.shape[1]-(waypoint.shape[0]-1-controlstate_msg.tfnodenumber)*15
+                    if(endindex<interceptindex):
+                        print("~~~~~endindex<interceptindex~~~~")
+                        continue
+                    controlstate_msg.arraylength=endindex-interceptindex
+                    # interceptindex=int(max(min(lastarraylength-round(t*controlfreq)-1,lastarraylength-1),0))
 
-                    controlstate_msg.stateXarray = full_like(y[interceptindex:],controlstate_msg.rendezvouswall_x)
-                    controlstate_msg.stateYarray = y[interceptindex:]+ytf-y[-1]
-                    controlstate_msg.stateZarray = z[interceptindex:]+ztf-z[-1]
-                    controlstate_msg.stateVXarray = full_like(vy[interceptindex:],controlstate_msg.rendezvouswall_vx)
-                    controlstate_msg.stateVYarray = vy[interceptindex:]
-                    controlstate_msg.stateVZarray = vz[interceptindex:]
-                    controlstate_msg.stateAXarray = zeros_like(ay[interceptindex:])
-                    controlstate_msg.stateAYarray = ay[interceptindex:]
-                    controlstate_msg.stateAZarray = az[interceptindex:]
-
+                    controlstate_msg.stateXarray = full_like(Employedtrajectory[0,interceptindex:endindex],controlstate_msg.rendezvouswall_x)
+                    controlstate_msg.stateYarray = Employedtrajectory[0,interceptindex:endindex]+ytf-Employedtrajectory[0,endindex-1]
+                    controlstate_msg.stateZarray = Employedtrajectory[3,interceptindex:endindex]+ztf-Employedtrajectory[3,endindex-1]
+                    controlstate_msg.stateVXarray = full_like(Employedtrajectory[1,interceptindex:endindex],controlstate_msg.rendezvouswall_vx)
+                    controlstate_msg.stateVYarray = Employedtrajectory[1,interceptindex:endindex]
+                    controlstate_msg.stateVZarray = Employedtrajectory[4,interceptindex:endindex]
+                    controlstate_msg.stateAXarray = zeros_like(Employedtrajectory[2,interceptindex:endindex])
+                    controlstate_msg.stateAYarray = Employedtrajectory[2,interceptindex:endindex]
+                    controlstate_msg.stateAZarray = Employedtrajectory[5,interceptindex:endindex]
+                    # print("controlstate_msg.stateYarray[end]-------", controlstate_msg.stateYarray[-3:],"controlstate_msg.stateVYarray[end]-------", controlstate_msg.stateVYarray[-3:], 'interceptindex ',interceptindex, 'endindex ',endindex)
+                    # print('controlstate_msg.stateYarray ', controlstate_msg.stateYarray[0:],' y',Employedtrajectory[0,:],'  vy',Employedtrajectory[1,:])
                 control_pub.publish(controlstate_msg)
                 # print (y[-1],z[-1])
 
@@ -553,7 +598,7 @@ def main():
                 planned_path.header.frame_id="ground_link"
                 planned_path.poses=[]
 
-                for i in range(0, int(len(controlstate_msg.stateXarray))):
+                for i in range(0, len(controlstate_msg.stateXarray)):
                     planned_pose_stamped.pose.position.x=controlstate_msg.stateXarray[i]
                     planned_pose_stamped.pose.position.y=controlstate_msg.stateYarray[i]
                     planned_pose_stamped.pose.position.z=controlstate_msg.stateZarray[i]
@@ -563,12 +608,23 @@ def main():
                     planned_path.poses.append(copy.deepcopy(planned_pose_stamped))
 
                 path_pub.publish(planned_path)
+
             currentupdateflag = False
 
         recv_acc.linear_acceleration.y=ay0
         recv_acc.linear_acceleration.z=az0
         recv_acc.header.stamp=rospy.Time.now()
         acc_pub.publish(recv_acc)
+
+        for i in range(0, 6):
+            waypoints.header.stamp=rospy.Time.now()
+            waypoints.header.frame_id="ground_link"
+            waypoints.point.x=0
+            waypoints.point.y=temp_waypoint[i,0]
+            waypoints.point.z=temp_waypoint[i,1]
+            # print(waypoints.point.y)
+            point_pub.publish(waypoints)
+
         # rate.sleep()#do not use it to make sure the plan can be run immediately
 
 if __name__ == '__main__':  # 主函数

@@ -20,7 +20,7 @@ int main(int arc,char** arv)
     nav_msgs::Odometry currenttarget_postwist_msg;
     nav_msgs::Path targetactual_path;
     geometry_msgs::PoseStamped targetactual_pose_stamped;
-    double basevelocity_y=-0.5,basevelocity_z=0,currentvelocity_y=0,currentvelocity_z=0;
+    double basevelocity_y=0.5,basevelocity_z=0,currentvelocity_y=0,currentvelocity_z=0;
     double pos_y=4.0,pos_z=2.0;
     double noise_amplitued=0.05;
     int freq=30,counter=0;
