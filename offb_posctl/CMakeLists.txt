@@ -1,9 +1,12 @@
 cmake_minimum_required(VERSION 2.8.3)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}  -std=c++0x")
 project(offb_posctl)
-add_compile_options(-std=c++11)
+set(CMAKE_BUILD_TYPE "Release")
 ## Compile as C++11, supported in ROS Kinetic and newer
-# add_compile_options(-std=c++11)
+add_compile_options(-std=c++11)
+set(NLopt_DIR /usr/local/lib/cmake/nlopt) ## this is the directory that find_package used for config mode to search xxxConfig.cmake. lower and upper case is sensitive
+# details referenced:https://blog.csdn.net/FL1623863129/article/details/119808865
+#message("-----------------" ${NLopt_DIR})
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -15,14 +18,13 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
   message_generation
+  NLopt
 )
+
 include_directories("/home/sensenliu/psoptproject/psopt-master/include")
 include_directories ( "/home/sensenliu/coinbrew_ipopt/Ipopt/src/Interfaces" "/home/sensenliu/coinbrew_ipopt/Ipopt/src/Common" "/home/sensenliu/coinbrew_ipopt/Ipopt/src/LinAlg")
-
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(ipopt REQUIRED IMPORTED_TARGET ipopt)
-
-
 
 ## Generate messages in the 'msg' folder
  add_message_files(
@@ -227,3 +229,8 @@ add_executable(motiondetection  src/motiondetection.cpp)
 target_link_libraries(motiondetection  ${catkin_LIBRARIES}
         )
 
+add_executable(nlopttest  src/nlopttest.cpp)
+target_link_libraries(nlopttest  ${catkin_LIBRARIES} ${NLOPT_LIBRARIES}
+        )
+#${NLOPT_LIBRARIES} is found from NLoptConfig.cmake. It represent all of the depended libraries (.a .so). Attention: it means specific library not
+#including directories
