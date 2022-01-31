@@ -169,13 +169,13 @@ def main():
     running_time = end - start0
     print('time cost : %.5f sec' % running_time)
     print(Initial_guess[0], ineqmycon(Initial_guess))
-    Initial_guess[0]=1.29
+    Initial_guess[0]=0.32
 
     times=np.linspace(0,1,round(Initial_guess[0]*controlfreq))*Initial_guess
 
     t=Initial_guess[0]
-    y0,z0,vy0,vz0,ay0,az0=[-0.06390421092510223, 0.53312087059021, 0.028850866481661797, -0.07197022438049316, 0.021810559555888176, 0.010911194607615471]
-    ytf,ztf,vytf,vztf,aytf,aztf=[0.505578, 0.619863, 3.097399, -0.033222, -0.007129, 0.805617]
+    y0,z0,vy0,vz0,ay0,az0=[0.9964441657066345, 1.1313401460647583, 4.3546142578125, 0.7766915559768677, 5.313570499420166, 1.1627477407455444]
+    ytf,ztf,vytf,vztf,aytf,aztf=[2.1021140633409194, 0.9959506077627565, 4.159587002054348, 1.0294599337376968, -3.553221, 1.194]
     tarray=np.array([[60/t**3,-360/t**4,720/t**5],[-24/t**2,168/t**3,-360/t**4],[3/t,-24/t**2,60/t**3]])
 
     tarray=np.array([[60/t**3,-360/t**4,720/t**5],[-24/t**2,168/t**3,-360/t**4],[3/t,-24/t**2,60/t**3]])

@@ -156,7 +156,7 @@ def getterminateStateTime(t):
         wallindex=int(min(round((t+time.time()-lastwallupdatetime+1.0/60.0)*wallstate_msg.discrepointpersecond),wallstate_msg.arraylength-1))#add 1/60.0 is to compliment the latency when offboard node receive the ocplan message,
         # this is because the offb_posctl_vicon node loops in 30Hz, and the receive will latency a period, therefore we add 1/60 as the middle of 1/30 to make sure the max time error located in 1/60
         # print(wallindex)
-        if wallindex>=wallstate_msg.arraylength:
+        if wallindex>=wallstate_msg.arraylength-1:
             t=wallstate_msg.arraylength/wallstate_msg.discrepointpersecond-(time.time()-lastwallupdatetime+1.0/60.0)
 
         xtf_wall=wallstate_msg.stateXarray[wallindex]
@@ -167,8 +167,8 @@ def getterminateStateTime(t):
         vztf_wall=wallstate_msg.stateVZarray[wallindex]
 
 
-    temp_waypoint[:,0]=ytf_wall-waypoint[-1,0]+waypoint[:,0]-(vytf_wall+delta_vytf-waypoint[-1,2])*linspace(2.5,0,6)
-    temp_waypoint[:,1]=ztf_wall-waypoint[-1,1]+waypoint[:,1]-(vztf_wall+delta_vztf-waypoint[-1,3])*linspace(2.5,0,6)
+    temp_waypoint[:,0]=ytf_wall+delta_ytf-waypoint[-1,0]+waypoint[:,0]-(vytf_wall+delta_vytf-waypoint[-1,2])*linspace(2.5,0,6)
+    temp_waypoint[:,1]=ztf_wall+delta_ztf-waypoint[-1,1]+waypoint[:,1]-(vztf_wall+delta_vztf-waypoint[-1,3])*linspace(2.5,0,6)
     temp_waypoint[:,2]=(vytf_wall+delta_vytf-waypoint[-1,2])+waypoint[:,2]
     temp_waypoint[:,3]=(vztf_wall+delta_vztf-waypoint[-1,3])+waypoint[:,3]
     dyna_lbv=lbv+(vytf_wall+delta_vytf-waypoint[-1,2])
@@ -202,7 +202,7 @@ def ineqmycon(x):
     global y0,z0,vy0,vz0,ay0,az0, ytf,ztf,vytf,vztf,aytf,aztf, thrustmax, angleaccdmax, lbz, ubz, lbv, ubv
 
     ytf,ztf,vytf,vztf,aytf,aztf,t,tfnodenumber=getterminateStateTime(x)
-    # print('time in---time out',x,t,y0,z0,vy0,vz0,ay0,az0, ytf,ztf,vytf,vztf,aytf,aztf)
+    print('time in---time out',x,t,y0,z0,vy0,vz0,ay0,az0, ytf,ztf,vytf,vztf,aytf,aztf)
     if t<0:
         return False
     # t=1.01 # for debug
@@ -279,10 +279,31 @@ def ineqmycon(x):
 
     return True
 
+
+def getVirturaltarget(data):
+    y_s,vy_s,z_s,vz_s,y_e,vy_e,z_e,vz_e,d=data[0],data[1],data[2],data[3],data[4],data[5],data[6],data[7],data[8]
+    y_c,vy_c,z_c,vz_c,y_tf,vy_tf,z_tf,vz_tf=y0,vy0,z0,vz0,ytf_wall+delta_ytf,vytf_wall+delta_vytf,ztf_wall+delta_ztf,vztf_wall+delta_vztf
+    lmdy1,lmdy2,lmdy3,lmdy4=1,1,1,1 # lmd1 y_o-yc,lmd2 vy_o-vyc lmd3 y_o-ytf, lmd4 y_o-vytf
+    lmdz1,lmdz2,lmdz3,lmdz4=1,1,1,1
+    virtual_y=(lmdy1*lmdy2*y_c + lmdy1*lmdy4*y_c + lmdy1*lmdy2*y_e + lmdy1*lmdy4*y_e - lmdy1*lmdy2*y_s - lmdy1*lmdy4*y_s + lmdy2*lmdy3*y_tf +
+                  lmdy3*lmdy4*y_tf + d*lmdy1*lmdy2*vy_c - d*lmdy1*lmdy4*vy_e - d*lmdy1*lmdy2*vy_s + d*lmdy1*lmdy4*vy_tf + d**2*lmdy1*lmdy3*y_tf)/\
+                 (lmdy1*lmdy3*d**2 + lmdy1*lmdy2 + lmdy1*lmdy4 + lmdy2*lmdy3 + lmdy3*lmdy4)
+    virtual_vy=(lmdy1*lmdy2*vy_c + lmdy1*lmdy2*vy_e + lmdy2*lmdy3*vy_c + lmdy2*lmdy3*vy_e - lmdy1*lmdy2*vy_s - lmdy2*lmdy3*vy_s + lmdy1*lmdy4*
+                   vy_tf + lmdy3*lmdy4*vy_tf - d*lmdy1*lmdy3*y_c - d*lmdy1*lmdy3*y_e + d*lmdy1*lmdy3*y_s + d*lmdy1*lmdy3*y_tf + d**2*lmdy1*lmdy3*vy_e)/\
+                  (lmdy1*lmdy3*d**2 + lmdy1*lmdy2 + lmdy1*lmdy4 + lmdy2*lmdy3 + lmdy3*lmdy4)
+    virtual_z=(lmdz1*lmdz2*z_c + lmdz1*lmdz4*z_c + lmdz1*lmdz2*z_e + lmdz1*lmdz4*z_e - lmdz1*lmdz2*z_s - lmdz1*lmdz4*z_s + lmdz2*lmdz3*z_tf +
+                  lmdz3*lmdz4*z_tf + d*lmdz1*lmdz2*vz_c - d*lmdz1*lmdz4*vz_e - d*lmdz1*lmdz2*vz_s + d*lmdz1*lmdz4*vz_tf + d**2*lmdz1*lmdz3*z_tf)/\
+                 (lmdz1*lmdz3*d**2 + lmdz1*lmdz2 + lmdz1*lmdz4 + lmdz2*lmdz3 + lmdz3*lmdz4)
+    virtual_vz=(lmdz1*lmdz2*vz_c + lmdz1*lmdz2*vz_e + lmdz2*lmdz3*vz_c + lmdz2*lmdz3*vz_e - lmdz1*lmdz2*vz_s - lmdz2*lmdz3*vz_s + lmdz1*lmdz4*vz_tf +
+                lmdz3*lmdz4*vz_tf - d*lmdz1*lmdz3*z_c - d*lmdz1*lmdz3*z_e + d*lmdz1*lmdz3*z_s + d*lmdz1*lmdz3*z_tf + d**2*lmdz1*lmdz3*vz_e)/\
+               (lmdz1*lmdz3*d**2 + lmdz1*lmdz2 + lmdz1*lmdz4 + lmdz2*lmdz3 + lmdz3*lmdz4)
+    # print ("y_tf,vy_tf,z_tf,vz_tf",y_tf,vy_tf,z_tf,vz_tf,"virtual_y,virtual_vy,virtual_z,virtual_vz",virtual_y,virtual_vy,virtual_z,virtual_vz)
+    return virtual_y,virtual_vy,virtual_z,virtual_vz
+
 def pos_twist_callback(data):
-    global vy0, y0, vz0, z0, ay0,az0,currentupdateflag,targetstartmoveflag
+    global vy0, y0, vz0, z0, ay0,az0,currentupdateflag
     y0,z0,vy0,vz0,ay0,az0 = data.pose.pose.position.y,data.pose.pose.position.z,data.twist.twist.linear.y,data.twist.twist.linear.z,data.twist.twist.angular.y,data.twist.twist.angular.z
-    # print(y0)
+    # print("state callback,y0",y0," z0:",z0)
     currentupdateflag = True
 
 
@@ -307,7 +328,7 @@ def wallstate_callback(data):
     lastwallupdatetime=wallstate_msg.header.stamp.secs+wallstate_msg.header.stamp.nsecs/1e9
 
 def main():
-    global currentupdateflag, wallstateupdateflag, targetstartmoveflag,lastsolved_time,lastsolveduration,xtf_wall,ytf_wall,ztf_wall,vxtf_wall,vytf_wall,vztf_wall,normspeed,wallstate_msg
+    global currentupdateflag, wallstateupdateflag,lastsolved_time,lastsolveduration,xtf_wall,ytf_wall,ztf_wall,vxtf_wall,vytf_wall,vztf_wall,normspeed,wallstate_msg
     controlstate_msg = controlstate()  # 要发布的控制量消息
     planned_path=Path()
     target_path=Path()
@@ -446,7 +467,7 @@ def main():
                         rospy.loginfo_throttle(0.02,('supple-computercost : %.5f' % running_time, 'segmenttime : %.2f' % segmenttime, 'tfnodenumber %d' % tfnodenumber,
                         'residualduration %.2f' % residualduration,'y0: %.3f' % y0,'ytf: %.3f' % ytf, 'ztf : %.2f' % ztf,'vyft: %.2f' % vytf))
             if(residualduration<=0.8 and residualduration>0):
-                increaseratio=1.0
+                increaseratio=1.5 ## test
 
             if residualduration>planstoptime:
                 t=segmenttime
@@ -500,7 +521,7 @@ def main():
 
                     # print("Terminate state before calcualted, t,ytf,vytf,aytf,ztf,vztf,aztf,y0,vy0,ay0,z0,vz0,az0",t,ytf,vytf,aytf,ztf,vztf,aztf,y0,vy0,ay0,z0,vz0,az0)
                     Dynamictrajectory=np.dot(np.diag([(vytf_wall+delta_vytf-waypoint[-1,2]),(vytf_wall+delta_vytf-waypoint[-1,2]),0,(vztf_wall+delta_vztf-waypoint[-1,3]),(vztf_wall+delta_vztf-waypoint[-1,3]),0]), Timetemplate)+\
-                                      Initialtrajectory+array(([ytf_wall-Initialtrajectory[0,-1]],[0],[0],[ztf_wall-Initialtrajectory[3,-1]],[0],[0]))
+                                      Initialtrajectory+array(([ytf_wall+delta_ytf-Initialtrajectory[0,-1]],[0],[0],[ztf_wall+delta_ztf-Initialtrajectory[3,-1]],[0],[0]))
                     times=linspace(0, 1, controlstate_msg.arraylength)*t
                     tarray=array([[60/t**3,-360/t**4,720/t**5],[-24/t**2,168/t**3,-360/t**4],[3/t,-24/t**2,60/t**3]])
 
@@ -574,15 +595,26 @@ def main():
                     controlstate_msg.parabolictime=parabolictime
                     interceptindex=min(int(round((time.time()-lastsolved_time)*controlfreq)),Employedtrajectory.shape[1])
                     endindex=Employedtrajectory.shape[1]-(waypoint.shape[0]-1-controlstate_msg.tfnodenumber)*15
-                    if(endindex<interceptindex):
+                    if(endindex<=interceptindex):
                         print("~~~~~endindex<interceptindex~~~~")
                         continue
+
+                    E_time=(Employedtrajectory.shape[1]-1)/controlstate_msg.discrepointpersecond
+                    E_Timetemplate=np.vstack(( linspace(-E_time,0,Employedtrajectory.shape[1]), np.ones((1,Employedtrajectory.shape[1])), np.zeros((1,Employedtrajectory.shape[1])),
+                                                 linspace(-E_time,0,Employedtrajectory.shape[1]), np.ones((1,Employedtrajectory.shape[1])), np.zeros((1,Employedtrajectory.shape[1])) ))
+
+                    virtual_y,virtual_vy,virtual_z,virtual_vz=getVirturaltarget([Employedtrajectory[0,interceptindex],Employedtrajectory[1,interceptindex],Employedtrajectory[3,interceptindex],Employedtrajectory[4,interceptindex],Employedtrajectory[0,-1],Employedtrajectory[1,-1],Employedtrajectory[3,-1],Employedtrajectory[4,-1],(Employedtrajectory.shape[1]-interceptindex)/controlstate_msg.discrepointpersecond])
+
+                    Employedtrajectory=np.dot(np.diag([(virtual_vy-Employedtrajectory[1,-1]),(virtual_vy-Employedtrajectory[1,-1]),0,(virtual_vz-Employedtrajectory[4,-1]),(virtual_vz-Employedtrajectory[4,-1]),0]), E_Timetemplate)+ \
+                                       Employedtrajectory+array(([virtual_y-Employedtrajectory[0,-1]],[0],[0],[virtual_z-Employedtrajectory[3,-1]],[0],[0]))
+
+
                     controlstate_msg.arraylength=endindex-interceptindex
                     # interceptindex=int(max(min(lastarraylength-round(t*controlfreq)-1,lastarraylength-1),0))
 
                     controlstate_msg.stateXarray = full_like(Employedtrajectory[0,interceptindex:endindex],controlstate_msg.rendezvouswall_x)
-                    controlstate_msg.stateYarray = Employedtrajectory[0,interceptindex:endindex]+ytf-Employedtrajectory[0,endindex-1]
-                    controlstate_msg.stateZarray = Employedtrajectory[3,interceptindex:endindex]+ztf-Employedtrajectory[3,endindex-1]
+                    controlstate_msg.stateYarray = Employedtrajectory[0,interceptindex:endindex]
+                    controlstate_msg.stateZarray = Employedtrajectory[3,interceptindex:endindex]
                     controlstate_msg.stateVXarray = full_like(Employedtrajectory[1,interceptindex:endindex],controlstate_msg.rendezvouswall_vx)
                     controlstate_msg.stateVYarray = Employedtrajectory[1,interceptindex:endindex]
                     controlstate_msg.stateVZarray = Employedtrajectory[4,interceptindex:endindex]
@@ -591,6 +623,8 @@ def main():
                     controlstate_msg.stateAZarray = Employedtrajectory[5,interceptindex:endindex]
                     # print("controlstate_msg.stateYarray[end]-------", controlstate_msg.stateYarray[-3:],"controlstate_msg.stateVYarray[end]-------", controlstate_msg.stateVYarray[-3:], 'interceptindex ',interceptindex, 'endindex ',endindex)
                     # print('controlstate_msg.stateYarray ', controlstate_msg.stateYarray[0:],' y',Employedtrajectory[0,:],'  vy',Employedtrajectory[1,:])
+                if controlstate_msg.stateYarray[0]==0 and controlstate_msg.stateZarray[0]==0:
+                    print("--------residualduration-------", residualduration,"---controlstate_msg.arraylength--","controlstate_msg.arraylength")
                 control_pub.publish(controlstate_msg)
                 # print (y[-1],z[-1])
 

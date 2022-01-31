@@ -62,7 +62,7 @@
 #include <unistd.h>
 #include <mutex>
 #include "offb_posctl/controlstate.h"
-
+#include "nlopt.hpp"
 using namespace Eigen;//释放eigen命名空间 矩阵库
 using namespace std;
 
@@ -93,7 +93,6 @@ geometry_msgs::Vector3 targeterror_msg;
 geometry_msgs::Vector3 temp_angle;
 geometry_msgs::Vector3 rpy;
 offb_posctl::controlstate controlstatearray_msg;
-offb_posctl::controlstate temp_controlstatearray_msg;
 geometry_msgs::Vector3 angle_receive;       //读入的无人机姿态（欧拉角）
 
 float thrust_target;        //期望推力
@@ -132,7 +131,6 @@ FILTER vy_Der(20),vz_Der(20),ay_Filter(20),az_Filter(20);
 float comp_integrate,comp_last_error;
 float comp_kp = 0,comp_ki = 0,comp_kd = 0;
 
-
 /// for tractor
 std::mutex mtx;
 double amp=0.5;
@@ -145,7 +143,17 @@ double axv=0.0,azv=0.0,ayv=0.0;
 bool planstopflag=false;
 bool startattitudecotrolflag=false;
 
-
+///>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>terminal replanning<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+int timenodenumber = 4;
+typedef struct {
+    double T, k, a0, u1, u2, x10, x20, x30, x40, x1tf, x2tf, x3tf, x4tf, lmd1, lmd2, lmd3, lmd4;
+} my_cost_data;
+my_cost_data costdata = {0.6, 1.5, 0.3, -1, 1, 8.7, 4.2, 0.96, 1.03, 11, 4.2, 1.02, 1.03, 5, 1, 5, 1};
+nlopt::opt opt(nlopt::LD_SLSQP, timenodenumber);
+bool targetangleachievedflag= false;
+int ocp_startindex=0;
+Eigen::ArrayXf ocp_thrust_array=ArrayXf::Ones(1)*9.8*max(0.3,cos(1.22));;
+double ytf_ocp=0,vytf_ocp=0,ztf_ocp=0,vztf_ocp=0;
 ///>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>声 明 函 数<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 //欧拉角转四元数
@@ -209,7 +217,6 @@ void plane_alt_cb(const std_msgs::Float64::ConstPtr &msg){
     plane_real_alt = *msg;
 }
 bool contstaterecieveflag= false;
-int userfulpointcounter=1;
 void controlstate_cb(const offb_posctl::controlstate::ConstPtr &msg)
 {
     if(planstopflag== false)
@@ -223,6 +230,209 @@ void controlstate_cb(const offb_posctl::controlstate::ConstPtr &msg)
         }
     }
 
+}
+
+///>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>last segment thrust ocp<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+double myvfunc(const std::vector<double> &x, std::vector<double> &grad, void *my_func_data)
+{
+    my_cost_data *d = reinterpret_cast<my_cost_data*>(my_func_data);
+    double T=d->T, k=d->k, a0=d->a0, u1=d->u1, u2=d->u2, x10=d->x10, x20=d->x20, x30=d->x30, x40=d->x40, x1tf=d->x1tf,
+            x2tf=d->x2tf, x3tf=d->x3tf, x4tf=d->x4tf, lmd1=d->lmd1, lmd2=d->lmd2, lmd3=d->lmd3, lmd4=d->lmd4;
+    double t1=x[0],t2=x[1],t3=x[2],t4=x[3];
+    if (!grad.empty()) {
+        grad[0] = 2*lmd2*(u1*sin(a0 + k*t1) - u2*sin(a0 + k*t1))*(x2tf - x20 - (u1*(cos(a0 + T*k) - cos(a0 + k*t4)))/k + (u2*(cos(a0 + k*t1) - cos(a0 + k*t2)))/k + (u1*(cos(a0 + k*t2) - cos(a0 + k*t3)))/k + (u2*(cos(a0 + k*t3) - cos(a0 + k*t4)))/k - (u1*(cos(a0 + k*t1) - cos(a0)))/k) - 2*lmd3*((k*u1*sin(a0) - k*u1*sin(a0 + k*t1))/pow(k,2) - u2*cos(a0 + k*t1)*(t1 - t2))*(x30 - x3tf + T*x40 - (u1*(cos(a0 + k*t1) - cos(a0)) + k*t1*u1*sin(a0))/pow(k,2) - (u1*(cos(a0 + T*k) - cos(a0 + k*t4)))/pow(k,2) + (u2*(cos(a0 + k*t1) - cos(a0 + k*t2)))/pow(k,2) + (u1*(cos(a0 + k*t2) - cos(a0 + k*t3)))/pow(k,2) + (u2*(cos(a0 + k*t3) - cos(a0 + k*t4)))/pow(k,2) - (u1*sin(a0 + k*t4)*(T - t4))/k + (u2*sin(a0 + k*t1)*(t1 - t2))/k + (u1*sin(a0 + k*t2)*(t2 - t3))/k + (u2*sin(a0 + k*t3)*(t3 - t4))/k) - 2*lmd1*((k*u1*cos(a0) - k*u1*cos(a0 + k*t1))/pow(k,2) + u2*sin(a0 + k*t1)*(t1 - t2))*(x10 - x1tf + T*x20 + (u1*(sin(a0 + k*t1) - sin(a0)) - k*t1*u1*cos(a0))/pow(k,2) + (u1*(sin(a0 + T*k) - sin(a0 + k*t4)))/pow(k,2) - (u2*(sin(a0 + k*t1) - sin(a0 + k*t2)))/pow(k,2) - (u1*(sin(a0 + k*t2) - sin(a0 + k*t3)))/pow(k,2) - (u2*(sin(a0 + k*t3) - sin(a0 + k*t4)))/pow(k,2) - (u1*cos(a0 + k*t4)*(T - t4))/k + (u2*cos(a0 + k*t1)*(t1 - t2))/k + (u1*cos(a0 + k*t2)*(t2 - t3))/k + (u2*cos(a0 + k*t3)*(t3 - t4))/k) - 2*lmd4*(u1*cos(a0 + k*t1) - u2*cos(a0 + k*t1))*(x4tf - x40 - (u1*(sin(a0 + T*k) - sin(a0 + k*t4)))/k + (u2*(sin(a0 + k*t1) - sin(a0 + k*t2)))/k + (u1*(sin(a0 + k*t2) - sin(a0 + k*t3)))/k + (u2*(sin(a0 + k*t3) - sin(a0 + k*t4)))/k - (u1*(sin(a0 + k*t1) - sin(a0)))/k);
+        grad[1] = 2*lmd4*(u1*cos(a0 + k*t2) - u2*cos(a0 + k*t2))*(x4tf - x40 - (u1*(sin(a0 + T*k) - sin(a0 + k*t4)))/k + (u2*(sin(a0 + k*t1) - sin(a0 + k*t2)))/k + (u1*(sin(a0 + k*t2) - sin(a0 + k*t3)))/k + (u2*(sin(a0 + k*t3) - sin(a0 + k*t4)))/k - (u1*(sin(a0 + k*t1) - sin(a0)))/k) - 2*lmd2*(u1*sin(a0 + k*t2) - u2*sin(a0 + k*t2))*(x2tf - x20 - (u1*(cos(a0 + T*k) - cos(a0 + k*t4)))/k + (u2*(cos(a0 + k*t1) - cos(a0 + k*t2)))/k + (u1*(cos(a0 + k*t2) - cos(a0 + k*t3)))/k + (u2*(cos(a0 + k*t3) - cos(a0 + k*t4)))/k - (u1*(cos(a0 + k*t1) - cos(a0)))/k) - 2*lmd1*((u2*cos(a0 + k*t1))/k - (u2*cos(a0 + k*t2))/k + u1*sin(a0 + k*t2)*(t2 - t3))*(x10 - x1tf + T*x20 + (u1*(sin(a0 + k*t1) - sin(a0)) - k*t1*u1*cos(a0))/pow(k,2) + (u1*(sin(a0 + T*k) - sin(a0 + k*t4)))/pow(k,2) - (u2*(sin(a0 + k*t1) - sin(a0 + k*t2)))/pow(k,2) - (u1*(sin(a0 + k*t2) - sin(a0 + k*t3)))/pow(k,2) - (u2*(sin(a0 + k*t3) - sin(a0 + k*t4)))/pow(k,2) - (u1*cos(a0 + k*t4)*(T - t4))/k + (u2*cos(a0 + k*t1)*(t1 - t2))/k + (u1*cos(a0 + k*t2)*(t2 - t3))/k + (u2*cos(a0 + k*t3)*(t3 - t4))/k) + 2*lmd3*((u2*sin(a0 + k*t2))/k - (u2*sin(a0 + k*t1))/k + u1*cos(a0 + k*t2)*(t2 - t3))*(x30 - x3tf + T*x40 - (u1*(cos(a0 + k*t1) - cos(a0)) + k*t1*u1*sin(a0))/pow(k,2) - (u1*(cos(a0 + T*k) - cos(a0 + k*t4)))/pow(k,2) + (u2*(cos(a0 + k*t1) - cos(a0 + k*t2)))/pow(k,2) + (u1*(cos(a0 + k*t2) - cos(a0 + k*t3)))/pow(k,2) + (u2*(cos(a0 + k*t3) - cos(a0 + k*t4)))/pow(k,2) - (u1*sin(a0 + k*t4)*(T - t4))/k + (u2*sin(a0 + k*t1)*(t1 - t2))/k + (u1*sin(a0 + k*t2)*(t2 - t3))/k + (u2*sin(a0 + k*t3)*(t3 - t4))/k);
+        grad[2] = 2*lmd2*(u1*sin(a0 + k*t3) - u2*sin(a0 + k*t3))*(x2tf - x20 - (u1*(cos(a0 + T*k) - cos(a0 + k*t4)))/k + (u2*(cos(a0 + k*t1) - cos(a0 + k*t2)))/k + (u1*(cos(a0 + k*t2) - cos(a0 + k*t3)))/k + (u2*(cos(a0 + k*t3) - cos(a0 + k*t4)))/k - (u1*(cos(a0 + k*t1) - cos(a0)))/k) - 2*lmd1*((u1*cos(a0 + k*t2))/k - (u1*cos(a0 + k*t3))/k + u2*sin(a0 + k*t3)*(t3 - t4))*(x10 - x1tf + T*x20 + (u1*(sin(a0 + k*t1) - sin(a0)) - k*t1*u1*cos(a0))/pow(k,2) + (u1*(sin(a0 + T*k) - sin(a0 + k*t4)))/pow(k,2) - (u2*(sin(a0 + k*t1) - sin(a0 + k*t2)))/pow(k,2) - (u1*(sin(a0 + k*t2) - sin(a0 + k*t3)))/pow(k,2) - (u2*(sin(a0 + k*t3) - sin(a0 + k*t4)))/pow(k,2) - (u1*cos(a0 + k*t4)*(T - t4))/k + (u2*cos(a0 + k*t1)*(t1 - t2))/k + (u1*cos(a0 + k*t2)*(t2 - t3))/k + (u2*cos(a0 + k*t3)*(t3 - t4))/k) - 2*lmd4*(u1*cos(a0 + k*t3) - u2*cos(a0 + k*t3))*(x4tf - x40 - (u1*(sin(a0 + T*k) - sin(a0 + k*t4)))/k + (u2*(sin(a0 + k*t1) - sin(a0 + k*t2)))/k + (u1*(sin(a0 + k*t2) - sin(a0 + k*t3)))/k + (u2*(sin(a0 + k*t3) - sin(a0 + k*t4)))/k - (u1*(sin(a0 + k*t1) - sin(a0)))/k) + 2*lmd3*((u1*sin(a0 + k*t3))/k - (u1*sin(a0 + k*t2))/k + u2*cos(a0 + k*t3)*(t3 - t4))*(x30 - x3tf + T*x40 - (u1*(cos(a0 + k*t1) - cos(a0)) + k*t1*u1*sin(a0))/pow(k,2) - (u1*(cos(a0 + T*k) - cos(a0 + k*t4)))/pow(k,2) + (u2*(cos(a0 + k*t1) - cos(a0 + k*t2)))/pow(k,2) + (u1*(cos(a0 + k*t2) - cos(a0 + k*t3)))/pow(k,2) + (u2*(cos(a0 + k*t3) - cos(a0 + k*t4)))/pow(k,2) - (u1*sin(a0 + k*t4)*(T - t4))/k + (u2*sin(a0 + k*t1)*(t1 - t2))/k + (u1*sin(a0 + k*t2)*(t2 - t3))/k + (u2*sin(a0 + k*t3)*(t3 - t4))/k);
+        grad[3] = 2*lmd1*((u2*cos(a0 + k*t4))/k - (u2*cos(a0 + k*t3))/k + u1*sin(a0 + k*t4)*(T - t4))*(x10 - x1tf + T*x20 + (u1*(sin(a0 + k*t1) - sin(a0)) - k*t1*u1*cos(a0))/pow(k,2) + (u1*(sin(a0 + T*k) - sin(a0 + k*t4)))/pow(k,2) - (u2*(sin(a0 + k*t1) - sin(a0 + k*t2)))/pow(k,2) - (u1*(sin(a0 + k*t2) - sin(a0 + k*t3)))/pow(k,2) - (u2*(sin(a0 + k*t3) - sin(a0 + k*t4)))/pow(k,2) - (u1*cos(a0 + k*t4)*(T - t4))/k + (u2*cos(a0 + k*t1)*(t1 - t2))/k + (u1*cos(a0 + k*t2)*(t2 - t3))/k + (u2*cos(a0 + k*t3)*(t3 - t4))/k) - 2*lmd2*(u1*sin(a0 + k*t4) - u2*sin(a0 + k*t4))*(x2tf - x20 - (u1*(cos(a0 + T*k) - cos(a0 + k*t4)))/k + (u2*(cos(a0 + k*t1) - cos(a0 + k*t2)))/k + (u1*(cos(a0 + k*t2) - cos(a0 + k*t3)))/k + (u2*(cos(a0 + k*t3) - cos(a0 + k*t4)))/k - (u1*(cos(a0 + k*t1) - cos(a0)))/k) + 2*lmd4*(u1*cos(a0 + k*t4) - u2*cos(a0 + k*t4))*(x4tf - x40 - (u1*(sin(a0 + T*k) - sin(a0 + k*t4)))/k + (u2*(sin(a0 + k*t1) - sin(a0 + k*t2)))/k + (u1*(sin(a0 + k*t2) - sin(a0 + k*t3)))/k + (u2*(sin(a0 + k*t3) - sin(a0 + k*t4)))/k - (u1*(sin(a0 + k*t1) - sin(a0)))/k) - 2*lmd3*((u2*sin(a0 + k*t3))/k - (u2*sin(a0 + k*t4))/k + u1*cos(a0 + k*t4)*(T - t4))*(x30 - x3tf + T*x40 - (u1*(cos(a0 + k*t1) - cos(a0)) + k*t1*u1*sin(a0))/pow(k,2) - (u1*(cos(a0 + T*k) - cos(a0 + k*t4)))/pow(k,2) + (u2*(cos(a0 + k*t1) - cos(a0 + k*t2)))/pow(k,2) + (u1*(cos(a0 + k*t2) - cos(a0 + k*t3)))/pow(k,2) + (u2*(cos(a0 + k*t3) - cos(a0 + k*t4)))/pow(k,2) - (u1*sin(a0 + k*t4)*(T - t4))/k + (u2*sin(a0 + k*t1)*(t1 - t2))/k + (u1*sin(a0 + k*t2)*(t2 - t3))/k + (u2*sin(a0 + k*t3)*(t3 - t4))/k);
+    }
+//    double J= lmd1*pow((x10 - x1tf + T*x20 + (u1*(sin(a0 + k*t1) - sin(a0)) - k*t1*u1*cos(a0))/pow(k,2) + (u1*(sin(a0 + T*k) - sin(a0 + k*t4)))/pow(k,2) - (u2*(sin(a0 + k*t1) - sin(a0 + k*t2)))/pow(k,2) - (u1*(sin(a0 + k*t2) - sin(a0 + k*t3)))/pow(k,2) - (u2*(sin(a0 + k*t3) - sin(a0 + k*t4)))/pow(k,2) - (u1*cos(a0 + k*t4)*(T - t4))/k + (u2*cos(a0 + k*t1)*(t1 - t2))/k + (u1*cos(a0 + k*t2)*(t2 - t3))/k + (u2*cos(a0 + k*t3)*(t3 - t4))/k),2) + lmd4*pow((x4tf - x40 - (u1*(sin(a0 + T*k) - sin(a0 + k*t4)))/k + (u2*(sin(a0 + k*t1) - sin(a0 + k*t2)))/k + (u1*(sin(a0 + k*t2) - sin(a0 + k*t3)))/k + (u2*(sin(a0 + k*t3) - sin(a0 + k*t4)))/k - (u1*(sin(a0 + k*t1) - sin(a0)))/k),2) + lmd2*pow((x2tf - x20 - (u1*(cos(a0 + T*k) - cos(a0 + k*t4)))/k + (u2*(cos(a0 + k*t1) - cos(a0 + k*t2)))/k + (u1*(cos(a0 + k*t2) - cos(a0 + k*t3)))/k + (u2*(cos(a0 + k*t3) - cos(a0 + k*t4)))/k - (u1*(cos(a0 + k*t1) - cos(a0)))/k),2) + lmd3*pow((x30 - x3tf + T*x40 - (u1*(cos(a0 + k*t1) - cos(a0)) + k*t1*u1*sin(a0))/pow(k,2) - (u1*(cos(a0 + T*k) - cos(a0 + k*t4)))/pow(k,2) + (u2*(cos(a0 + k*t1) - cos(a0 + k*t2)))/pow(k,2) + (u1*(cos(a0 + k*t2) - cos(a0 + k*t3)))/pow(k,2) + (u2*(cos(a0 + k*t3) - cos(a0 + k*t4)))/pow(k,2) - (u1*sin(a0 + k*t4)*(T - t4))/k + (u2*sin(a0 + k*t1)*(t1 - t2))/k + (u1*sin(a0 + k*t2)*(t2 - t3))/k + (u2*sin(a0 + k*t3)*(t3 - t4))/k),2);
+//
+//    cout<<"cost J: "<<J<<endl;
+
+    return  lmd1*pow((x10 - x1tf + T*x20 + (u1*(sin(a0 + k*t1) - sin(a0)) - k*t1*u1*cos(a0))/pow(k,2) + (u1*(sin(a0 + T*k) - sin(a0 + k*t4)))/pow(k,2) - (u2*(sin(a0 + k*t1) - sin(a0 + k*t2)))/pow(k,2) - (u1*(sin(a0 + k*t2) - sin(a0 + k*t3)))/pow(k,2) - (u2*(sin(a0 + k*t3) - sin(a0 + k*t4)))/pow(k,2) - (u1*cos(a0 + k*t4)*(T - t4))/k + (u2*cos(a0 + k*t1)*(t1 - t2))/k + (u1*cos(a0 + k*t2)*(t2 - t3))/k + (u2*cos(a0 + k*t3)*(t3 - t4))/k),2) + lmd4*pow((x4tf - x40 - (u1*(sin(a0 + T*k) - sin(a0 + k*t4)))/k + (u2*(sin(a0 + k*t1) - sin(a0 + k*t2)))/k + (u1*(sin(a0 + k*t2) - sin(a0 + k*t3)))/k + (u2*(sin(a0 + k*t3) - sin(a0 + k*t4)))/k - (u1*(sin(a0 + k*t1) - sin(a0)))/k),2) + lmd2*pow((x2tf - x20 - (u1*(cos(a0 + T*k) - cos(a0 + k*t4)))/k + (u2*(cos(a0 + k*t1) - cos(a0 + k*t2)))/k + (u1*(cos(a0 + k*t2) - cos(a0 + k*t3)))/k + (u2*(cos(a0 + k*t3) - cos(a0 + k*t4)))/k - (u1*(cos(a0 + k*t1) - cos(a0)))/k),2) + lmd3*pow((x30 - x3tf + T*x40 - (u1*(cos(a0 + k*t1) - cos(a0)) + k*t1*u1*sin(a0))/pow(k,2) - (u1*(cos(a0 + T*k) - cos(a0 + k*t4)))/pow(k,2) + (u2*(cos(a0 + k*t1) - cos(a0 + k*t2)))/pow(k,2) + (u1*(cos(a0 + k*t2) - cos(a0 + k*t3)))/pow(k,2) + (u2*(cos(a0 + k*t3) - cos(a0 + k*t4)))/pow(k,2) - (u1*sin(a0 + k*t4)*(T - t4))/k + (u2*sin(a0 + k*t1)*(t1 - t2))/k + (u1*sin(a0 + k*t2)*(t2 - t3))/k + (u2*sin(a0 + k*t3)*(t3 - t4))/k),2);
+}
+
+
+void multiconstraint(unsigned m, double *result, unsigned n, const double *x, double *gradient, void *func_data) // ref:https://blog.csdn.net/weixin_33937499/article/details/93488349 and https://nlopt.readthedocs.io/en/latest/NLopt_Reference/
+{
+    if(gradient){
+        gradient[0]= 1.0;
+        gradient[1]= -1.0;
+        gradient[2]= 0.0;
+        gradient[3]= 0.0;
+
+        gradient[4]= 0.0;
+        gradient[5]= 1.0;
+        gradient[6]= -1.0;
+        gradient[7]= 0.0;
+
+        gradient[8]= 0.0;
+        gradient[9]= 0.0;
+        gradient[10]= 1.0;
+        gradient[11]= -1.0;
+    }
+    result[0] = x[0]-x[1];
+    result[1] = x[1]-x[2];
+    result[2] = x[2]-x[3];
+}
+
+bool terminalreplanning()
+{
+    if(targetangleachievedflag==false && controlstatearray_msg.arraylength)
+    {
+//        costdata = {0.6, 1.5, 0.3, -1, 1, 8.7, 4.2, 0.96, 1.03, 11, 4.2, 1.02, 1.03, 1, 1, 1, 1};
+        double currenttime=ros::Time::now().toSec();
+        int startindex=round((currenttime-controlstatearray_msg.header.stamp.toSec())*controlstatearray_msg.discrepointpersecond)+controlstatearray_msg.inicounter <=controlstatearray_msg.arraylength ? round((currenttime-controlstatearray_msg.header.stamp.toSec())*controlstatearray_msg.discrepointpersecond)+controlstatearray_msg.inicounter : controlstatearray_msg.arraylength;
+        double plannedend_roll=min(-atan2(controlstatearray_msg.stateAYarray[controlstatearray_msg.arraylength-1],(controlstatearray_msg.stateAZarray[controlstatearray_msg.arraylength-1]+9.8)),1.57);
+        int array_length=0;
+        double angleoffset=0.2;
+        costdata.a0=angle_receive.x;
+        if(controlstatearray_msg.arraylength-startindex>3)
+        {
+            double plannnedstart_roll=-atan2(controlstatearray_msg.stateAYarray[startindex],(controlstatearray_msg.stateAZarray[startindex]+9.8));
+            costdata.k=(plannedend_roll-plannnedstart_roll)/((double)controlstatearray_msg.arraylength/(double)controlstatearray_msg.discrepointpersecond);
+        }
+
+        if (costdata.k>=0)
+        {
+            costdata.T=(plannedend_roll-angleoffset-costdata.a0)/costdata.k;
+            if(costdata.T<0.03)
+            {
+                targetangleachievedflag= true;
+                ocp_thrust_array=ArrayXf::Ones(1)*9.8*max(0.3,cos(plannedend_roll));
+                ocp_startindex=0;
+//                ROS_WARN_STREAM( "---------------------targetangleachievedflag---------------"<<targetangleachievedflag<<" 9.8*max(0.3,cos(plannedend_roll):"<<9.8*max(0.3,cos(plannedend_roll)));
+//                cout<<" ocp_thrust_array:"<<ocp_thrust_array<<endl;
+                return false;
+            }
+            array_length=round(costdata.T*controlstatearray_msg.discrepointpersecond);
+        }
+
+        Eigen::ArrayXf thrust_array = ArrayXf::Ones(array_length)*9.8*max(0.3,cos(plannedend_roll));
+        Eigen::ArrayXf compensatethrust=ArrayXf::Zero(array_length);
+        Eigen::ArrayXf roll_array = ArrayXf::LinSpaced(array_length,costdata.a0,plannedend_roll);
+        Eigen::ArrayXf thrustsin_array = ArrayXf::Zero(array_length);
+        Eigen::ArrayXf thrustcos_array = ArrayXf::Zero(array_length);
+        Eigen::MatrixXf interalmatrix=MatrixXf ::Ones(array_length,array_length).triangularView<Eigen::Upper>();
+        for(int i=startindex;i<controlstatearray_msg.arraylength;i++)
+        {
+            if((i-startindex)>=array_length)
+            {
+                break;
+            }
+            thrust_array(i-startindex)=sqrt(pow(controlstatearray_msg.stateAYarray[i],2)+pow(controlstatearray_msg.stateAZarray[i]+9.8,2));
+        }
+
+        ocp_thrust_array=thrust_array+compensatethrust;
+        thrustsin_array=thrust_array*sin(roll_array);
+        thrustsin_array=(thrustsin_array.matrix()*interalmatrix*1.0/controlstatearray_msg.discrepointpersecond).array();
+        thrustcos_array=thrust_array*cos(roll_array);
+        thrustcos_array=(thrustcos_array.matrix()*interalmatrix*1.0/controlstatearray_msg.discrepointpersecond).array();
+
+        double lowthrust=min(0.3*9.8-thrust_array.minCoeff(),0.0);
+        double upperthrust=max(2*9.8-thrust_array.maxCoeff(),0.0);
+//        cout<<"thrust_array.minCoeff(): "<<thrust_array.minCoeff()<<" thrust_array.maxCoeff():"<<thrust_array.maxCoeff()<<endl;
+        ytf_ocp=(currenttime+costdata.T-(controlstatearray_msg.header.stamp.toSec()+(double)controlstatearray_msg.arraylength/controlstatearray_msg.discrepointpersecond))*controlstatearray_msg.rendezvouswall_vy+controlstatearray_msg.rendezvouswall_y;
+        vytf_ocp=controlstatearray_msg.stateVYarray[controlstatearray_msg.arraylength-1];
+        ztf_ocp=(currenttime+costdata.T-(controlstatearray_msg.header.stamp.toSec()+(double)controlstatearray_msg.arraylength/controlstatearray_msg.discrepointpersecond))*controlstatearray_msg.rendezvouswall_vz+controlstatearray_msg.rendezvouswall_z;
+        vztf_ocp=controlstatearray_msg.stateVZarray[controlstatearray_msg.arraylength-1];
+
+        costdata.u1=lowthrust;costdata.u2=upperthrust;
+        costdata.x10=current_relativepostwist_msg.pose.pose.position.y;
+        costdata.x20=current_relativepostwist_msg.twist.twist.linear.y;
+        costdata.x30=current_relativepostwist_msg.pose.pose.position.z;
+        costdata.x40=current_relativepostwist_msg.twist.twist.linear.z;
+
+        costdata.x1tf=ytf_ocp+thrustsin_array.sum()*1.0/controlstatearray_msg.discrepointpersecond;
+        costdata.x2tf=vytf_ocp+thrustsin_array(array_length-1);
+        costdata.x3tf=ztf_ocp-thrustcos_array.sum()*1.0/controlstatearray_msg.discrepointpersecond+9.8*costdata.T*costdata.T/2;
+        costdata.x4tf=vztf_ocp-thrustcos_array(array_length-1)+9.8*costdata.T;
+
+        std::vector<double> ub(timenodenumber, costdata.T);
+        opt.set_upper_bounds(ub);
+
+        std::vector<double> x1(timenodenumber);
+        x1[0] = 0.0 / (timenodenumber + 1) * costdata.T;
+        x1[1] = 2.0 / (timenodenumber + 1) * costdata.T;
+        x1[2] = 3.0 / (timenodenumber + 1) * costdata.T;
+        x1[3] = 4.0 / (timenodenumber + 1) * costdata.T;
+        std::vector<double> x2{x1[0],x1[1],x1[2],x1[3]};
+        double minf1=+HUGE_VAL,minf2=+HUGE_VAL;
+        opt.set_min_objective(myvfunc, &costdata);
+        try {
+            nlopt::result result = opt.optimize(x1, minf1);
+            std::cout << "found minimum at f(" << x1[0] << "," << x1[1] << "," << x1[2] << "," << x1[3] << ") = "
+                      << std::setprecision(3) << minf1 << "remaining T "<<costdata.T<<std::endl;
+        }
+        catch (std::exception &e) {
+            std::cout << "nlopt failed: " << e.what() << std::endl;
+        }
+        costdata.u1=upperthrust;costdata.u2=lowthrust;
+        opt.set_min_objective(myvfunc, &costdata);
+        try {
+            nlopt::result result = opt.optimize(x2, minf2);
+            std::cout << "found minimum at f(" << x2[0] << "," << x2[1] << "," << x2[2] << "," << x2[3] << ") = "
+                      << std::setprecision(3) << minf2 << "remaining T "<<costdata.T<<std::endl;
+        }
+        catch (std::exception &e) {
+            std::cout << "nlopt failed: " << e.what() << std::endl;
+        }
+        if(minf1==+HUGE_VAL&&minf2==+HUGE_VAL)
+        {
+            return false;
+        }
+        if(minf1<minf2) {
+            Eigen::ArrayXf tempcompensatethrust=ArrayXf::Zero(array_length+1);// +1 is to avoid the index over in switchMatrix.block(1,array_length,p,q) block operation
+            Eigen::Array4i timenodevector(round(x1[0]*controlstatearray_msg.discrepointpersecond),round(x1[1]*controlstatearray_msg.discrepointpersecond),round(x1[2]*controlstatearray_msg.discrepointpersecond),round(x1[3]*controlstatearray_msg.discrepointpersecond));
+            tempcompensatethrust.segment(0,timenodevector(0))=tempcompensatethrust.segment(0,timenodevector(0))+lowthrust;
+            tempcompensatethrust.segment(timenodevector(0),timenodevector(1)-timenodevector(0))=tempcompensatethrust.segment(timenodevector(0),timenodevector(1)-timenodevector(0))+upperthrust;
+            tempcompensatethrust.segment(timenodevector(1),timenodevector(2)-timenodevector(1))=tempcompensatethrust.segment(timenodevector(1),timenodevector(2)-timenodevector(1))+lowthrust;
+            tempcompensatethrust.segment(timenodevector(2),timenodevector(3)-timenodevector(2))=tempcompensatethrust.segment(timenodevector(2),timenodevector(3)-timenodevector(2))+upperthrust;
+            tempcompensatethrust.segment(timenodevector(3),array_length-timenodevector(3))=tempcompensatethrust.segment(timenodevector(3),array_length-timenodevector(3))+lowthrust;
+            compensatethrust=tempcompensatethrust.segment(0,array_length);
+
+//            Eigen::MatrixXf switchMatrix=MatrixXf::Zero(2,array_length+1);// +1 is to avoid the index over in switchMatrix.block(1,array_length,p,q) block operation
+//            Eigen::Vector2f inputset(lowthrust,upperthrust);
+//            switchMatrix.block(0,0,1,timenodevector(0))=Eigen::MatrixXf::Ones(1,timenodevector(0));
+////            if(timenodevector(1)-timenodevector(0))
+//            {
+//                switchMatrix.block(1,timenodevector(0),1,timenodevector(1)-timenodevector(0))=Eigen::MatrixXf::Ones(1,timenodevector(1)-timenodevector(0));
+//            }
+//            switchMatrix.block(0,timenodevector(1),1,timenodevector(2)-timenodevector(1))=Eigen::MatrixXf::Ones(1,timenodevector(2)-timenodevector(1));
+//            switchMatrix.block(1,timenodevector(2),1,timenodevector(3)-timenodevector(2))=Eigen::MatrixXf::Ones(1,timenodevector(3)-timenodevector(2));
+//            switchMatrix.block(0,timenodevector(3),1,array_length-timenodevector(3))=Eigen::MatrixXf::Ones(1,array_length-timenodevector(3));
+//            compensatethrust=(inputset * switchMatrix).array().block(0,0,1,array_length);
+        } else{
+            Eigen::ArrayXf tempcompensatethrust=ArrayXf::Zero(array_length+1);
+            Eigen::Array4i timenodevector(round(x2[0]*controlstatearray_msg.discrepointpersecond),round(x2[1]*controlstatearray_msg.discrepointpersecond),round(x2[2]*controlstatearray_msg.discrepointpersecond),round(x2[3]*controlstatearray_msg.discrepointpersecond));
+
+            tempcompensatethrust.segment(0,timenodevector(0))=tempcompensatethrust.segment(0,timenodevector(0))+upperthrust;
+            tempcompensatethrust.segment(timenodevector(0),timenodevector(1)-timenodevector(0))=tempcompensatethrust.segment(timenodevector(0),timenodevector(1)-timenodevector(0))+lowthrust;
+            tempcompensatethrust.segment(timenodevector(1),timenodevector(2)-timenodevector(1))=tempcompensatethrust.segment(timenodevector(1),timenodevector(2)-timenodevector(1))+upperthrust;
+            tempcompensatethrust.segment(timenodevector(2),timenodevector(3)-timenodevector(2))=tempcompensatethrust.segment(timenodevector(2),timenodevector(3)-timenodevector(2))+lowthrust;
+            tempcompensatethrust.segment(timenodevector(3),array_length-timenodevector(3))=tempcompensatethrust.segment(timenodevector(3),array_length-timenodevector(3))+upperthrust;
+            compensatethrust=tempcompensatethrust.segment(0,array_length);
+
+
+//            Eigen::MatrixXf switchMatrix=MatrixXf::Zero(2,array_length+1);// +1 is to avoid the index over in switchMatrix.block(1,array_length,p,q) block operation
+//            Eigen::Vector2f inputset(upperthrust,lowthrust);
+//            switchMatrix.block(0,0,1,timenodevector(0))=Eigen::MatrixXf::Ones(1,timenodevector(0));
+////            if(timenodevector(1)-timenodevector(0))
+//            {
+//                switchMatrix.block(1,timenodevector(0),1,timenodevector(1)-timenodevector(0))=Eigen::MatrixXf::Ones(1,timenodevector(1)-timenodevector(0));
+//            }
+//            switchMatrix.block(0,timenodevector(1),1,timenodevector(2)-timenodevector(1))=Eigen::MatrixXf::Ones(1,timenodevector(2)-timenodevector(1));
+//            switchMatrix.block(1,timenodevector(2),1,timenodevector(3)-timenodevector(2))=Eigen::MatrixXf::Ones(1,timenodevector(3)-timenodevector(2));
+//            switchMatrix.block(0,timenodevector(3),1,array_length-timenodevector(3))=Eigen::MatrixXf::Ones(1,array_length-timenodevector(3));
+//            compensatethrust=(inputset * switchMatrix).array().block(0,0,1,array_length);
+        }
+        ocp_thrust_array=thrust_array+compensatethrust;
+        ocp_startindex=0;
+//        cout<<"thrust_array:"<<thrust_array<<" compensatethrust: "<<compensatethrust<<" ocp_thrust_array:"<<ocp_thrust_array<<endl;
+        return true;
+    }
+    return false;
 }
 
 ///>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>主 函 数<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
@@ -262,6 +472,17 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
     ros::Publisher targeterror_pub = nh.advertise<geometry_msgs::Vector3>("targeterror", 1);//目标误差
     ros::Publisher path_pub = nh.advertise<nav_msgs::Path>("atucaltrajectory",1, true);
 
+    int constraintsnumber = 3;
+    std::vector<double> lb(timenodenumber, 0.0);
+    std::vector<double> ub(timenodenumber, costdata.T);
+    std::vector<double> constraints_tol(constraintsnumber, 1e-6);
+    opt.set_lower_bounds(lb);
+    opt.set_upper_bounds(ub);
+    opt.set_min_objective(myvfunc, &costdata);
+    opt.add_inequality_mconstraint(multiconstraint, NULL, constraints_tol);
+    opt.set_xtol_rel(1e-4);
+    opt.set_maxtime(0.01);
+
     // 频率 [30Hz]
     ros::Rate rate(controlfreq);   //50hz的频率发送/接收topic  ros与pixhawk之间,50Hz control frequency
 
@@ -273,7 +494,7 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
     }
 
     // 读取PID参数
-    std::string paraadr("/home/sensenliu/catkin_ws/src/gazebo_ros_learning/offb_posctl/src/param");
+    std::string paraadr("/home/sensenliu/catkin_ws/src/gazebo_ros_learning/offb_posctl/data/param");
     if (param.readParam(paraadr.c_str()) == 0) {
         std::cout << "read config file error!" << std::endl;
 //        return 0;
@@ -554,24 +775,15 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                         plane_expected_acceleration.y=controlstatearray_msg.stateAYarray[controlstatearray_msg.stateXarray.size()-1];
                         plane_expected_acceleration.z=controlstatearray_msg.stateAZarray[controlstatearray_msg.stateXarray.size()-1];
                     }
-                    ROS_ERROR_STREAM( "plane_expected_position.y:"<<plane_expected_position.y<<" plane_expected_velocity.y:"<<plane_expected_velocity.y<<" current y: "<<pose_drone_odom.pose.pose.position.y<<" vel_drone.twist.linear.y: "<<vel_drone.twist.linear.y);
                     controlcounter++;
-//                    if(controlcounter>=controlstatearray_msg.arraylength ||controlstatearray_msg.arraylength<=10)
-//                    if((fabs(plane_expected_position.y-controlstatearray_msg.stateYarray[controlstatearray_msg.arraylength-1])<=0.1 && fabs(plane_expected_position.z-controlstatearray_msg.stateZarray[controlstatearray_msg.arraylength-1])<=0.1))
-////                    if((controlstatearray_msg.arraylength/controlstatearray_msg.discrepointpersecond)<1.0)
-//                    {
-//                        planstopflag= true;
-//                        ROS_ERROR_STREAM( "plane_expected_position.y: "<<plane_expected_position.y<<" plane_expected_position.z: "<<plane_expected_position.z<<" arraylength:"<<controlstatearray_msg.arraylength);
-//                    }
-                    if((controlstatearray_msg.arraylength-controlcounter)<0.15*controlstatearray_msg.discrepointpersecond && controlstatearray_msg.tfnodenumber==5)
+                    if((controlstatearray_msg.arraylength-controlcounter)<0.3*controlstatearray_msg.discrepointpersecond && controlstatearray_msg.tfnodenumber==5)
                     {
                         startattitudecotrolflag=true;
-                        ROS_ERROR_STREAM("startattitudecotrolflag:"<<startattitudecotrolflag<<" leftindex: "<<lefnodeindex<<" left_controlpoints: "<<controlstatearray_msg.arraylength-controlcounter<<" plane_expected_position.z: "<<plane_expected_position.z<<" pos_drone.pose.position.z: "<<pose_drone_odom.pose.pose.position.z);
-//                        ROS_ERROR_STREAM( "(controlstatearray_msg.arraylength-controlcounter): "<<(controlstatearray_msg.arraylength-controlcounter)<<" lefttime:"<<((controlstatearray_msg.arraylength-controlcounter)/controlstatearray_msg.discrepointpersecond));
+                        ROS_ERROR_STREAM("startattitudecotrolflag:"<<startattitudecotrolflag<<" plane_expected_position.y:"<<plane_expected_position.y<<" plane_expected_position.z: "<<plane_expected_position.z<<" current y: "<<pose_drone_odom.pose.pose.position.y<<" current z: "<<pose_drone_odom.pose.pose.position.z<<" planned roll:"<<angle_target.x<<" current roll:"<<angle_receive.x);
                     }
                     if(controlcounter>=controlstatearray_msg.arraylength && controlstatearray_msg.tfnodenumber==5)
                     {
-                        ROS_ERROR_STREAM( "plane_expected_position.y:"<<plane_expected_position.y<<" plane_expected_position.z:"<<plane_expected_position.z<<" current y: "<<pose_drone_odom.pose.pose.position.y<<" current z: "<<pose_drone_odom.pose.pose.position.z<<" controlstatearray_msg.tfnodenumber: "<<controlstatearray_msg.tfnodenumber
+                        ROS_ERROR_STREAM( "end_state2---plane_expected_position.y:"<<plane_expected_position.y<<" plane_expected_position.z:"<<plane_expected_position.z<<" current y: "<<pose_drone_odom.pose.pose.position.y<<" current z: "<<pose_drone_odom.pose.pose.position.z<<" planned roll: "<<-atan(controlstatearray_msg.stateAYarray[lefnodeindex]/(controlstatearray_msg.stateAZarray[lefnodeindex]+9.8))<<" controlstatearray_msg.tfnodenumber: "<<controlstatearray_msg.tfnodenumber
                         <<" controlstatearray_msg.arraylength: "<<controlstatearray_msg.arraylength);
                         quad_state=2;
                         wall_zaxis << 0,controlstatearray_msg.stateAYarray[controlstatearray_msg.arraylength-1]/9.8,(controlstatearray_msg.stateAZarray[controlstatearray_msg.arraylength-1]+9.8)/9.8;
@@ -581,7 +793,15 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
 //                    planned_postwist_msg.pose.pose.orientation.x=-atan(controlstatearray_msg.stateAYarray[lefnodeindex]/(controlstatearray_msg.stateAZarray[lefnodeindex]+9.8));
                 }
                 pix_controller(cur_time);
-
+                if(startattitudecotrolflag&&targetangleachievedflag== false)
+                {
+                    terminalreplanning();
+                    if(ocp_startindex<ocp_thrust_array.size())
+                    {
+                        thrust_target=ocp_thrust_array(ocp_startindex)/9.8*(param.THR_HOVER);
+                        ocp_startindex++;
+                    }
+                }
                 planned_postwist_msg.pose.pose.position.x=plane_expected_position.x;
                 planned_postwist_msg.pose.pose.position.y=plane_expected_position.y;
                 planned_postwist_msg.pose.pose.position.z=plane_expected_position.z;
@@ -593,18 +813,17 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                 ROS_INFO_STREAM("Apporaching_thrust_target: "<< thrust_target<<" roll:"<<angle_target.x<<" pitch:"<<angle_target.y<<" yaw:"<<angle_target.z);
                 break;
             case 2:
-                startattitudecotrolflag=false;
                 tempcounter++;
-                if(tempcounter<=controlstatearray_msg.parabolictime*controlstatearray_msg.discrepointpersecond)
-                {
-                    tempgoalPx=pose_drone_odom.pose.pose.position.x;
-                    tempgoalPy=pose_drone_odom.pose.pose.position.y;
-                    tempgoalPz=pose_drone_odom.pose.pose.position.z;
-                    cout<<"tempcounter: "<<tempcounter<<"  parabolictime*30: "<<controlstatearray_msg.parabolictime*30<<endl;
-                    ROS_ERROR_STREAM("temp goal goal goal Px:"<<tempgoalPx<<" Py: "<<tempgoalPy<<" Pz: "<<tempgoalPz<<" pitch:"<<temp_angle.x);
-                    thrust_target=param.THR_HOVER;
-                    break;
-                }
+//                if(tempcounter<=controlstatearray_msg.parabolictime*controlstatearray_msg.discrepointpersecond)
+//                {
+//                    tempgoalPx=pose_drone_odom.pose.pose.position.x;
+//                    tempgoalPy=pose_drone_odom.pose.pose.position.y;
+//                    tempgoalPz=pose_drone_odom.pose.pose.position.z;
+//                    cout<<"tempcounter: "<<tempcounter<<"  parabolictime*30: "<<controlstatearray_msg.parabolictime*30<<endl;
+//                    ROS_ERROR_STREAM("temp goal goal goal Px:"<<tempgoalPx<<" Py: "<<tempgoalPy<<" Pz: "<<tempgoalPz<<" pitch:"<<temp_angle.x);
+//                    thrust_target=param.THR_HOVER;
+//                    break;
+//                }
                 tempCurrentPx=pose_drone_odom.pose.pose.position.x;
                 tempCurrentPy=pose_drone_odom.pose.pose.position.y;
                 tempCurrentPz=pose_drone_odom.pose.pose.position.z;
@@ -617,27 +836,40 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                     dronetowall_vel_inworld << 0.0, vel_drone.twist.linear.y-controlstatearray_msg.rendezvouswall_vy,vel_drone.twist.linear.z-controlstatearray_msg.rendezvouswall_vy;
 
                 }
-                ROS_ERROR_STREAM(" Py: "<<tempCurrentPy<<" Pz: "<<tempCurrentPz<<" roll:"<<angle_receive.x<<" dronetowall_pos_inworld.dot(wall_zaxis): "<<dronetowall_pos_inworld.dot(wall_zaxis));
+                thrust_target  = param.THR_HOVER*cos(-atan(controlstatearray_msg.stateAYarray[lefnodeindex]/(controlstatearray_msg.stateAZarray[lefnodeindex]+9.8)))*cos(0);   //目标推力值 to alleviate the gravity's component along the drone's z axis
+                thrust_target  = max((double)thrust_target,param.THR_HOVER*0.5);   //目标推力值,只是用来保证提供扭矩，the drone is easy to fall freely and crash
+
+                if(targetangleachievedflag== false)
+                {
+                    terminalreplanning();
+                    if(ocp_startindex<ocp_thrust_array.size())
+                    {
+                        thrust_target=ocp_thrust_array(ocp_startindex)/9.8*(param.THR_HOVER);
+                        ocp_startindex++;
+                    }
+                }
+                ROS_ERROR_STREAM(" current y: "<<tempCurrentPy<<" current vy"<<vel_drone.twist.linear.y<<" current z: "<<tempCurrentPz<<" current vz"<<vel_drone.twist.linear.z<<" current roll:"<<angle_receive.x);
+                ROS_ERROR_STREAM(" planned rendez y: "<<ytf_ocp<<" ren vy:"<<vytf_ocp<<" ren z:"<<ztf_ocp<<" ren vz:"<<vztf_ocp<<" remaining T:"<<costdata.T);
+                ROS_ERROR_STREAM(" current wall y: "<<wallpostwist_odom.pose.pose.position.y<<" current wall vy: "<<wallpostwist_odom.twist.twist.linear.y<<" current wall z:"<<wallpostwist_odom.pose.pose.position.z<<" current wall vz:"<<wallpostwist_odom.twist.twist.linear.z);
                 if(dronetowall_pos_inworld.dot(wall_zaxis)<-0.2||dronetowall_vel_inworld.dot(wall_yaxis)<-1.5)
-//                if(tempCurrentPz<controlstatearray_msg.wall_z-0.25||tempCurrentPy<controlstatearray_msg.wall_y-0.20)
                 {
                     quad_state=3;
                     tempcounter=0;
-                    ROS_ERROR_STREAM("tempCurrentPz:"<<tempCurrentPz<<" rendezvouswall_z: "<<controlstatearray_msg.rendezvouswall_z<<" vel_read.z: "<<vel_drone.twist.linear.z);
+                    ROS_ERROR_STREAM("dronetowall_pos_inworld.dot(wall_zaxis):"<<dronetowall_pos_inworld.dot(wall_zaxis)<<" dronetowall_vel_inworld.dot(wall_yaxis): "<<dronetowall_vel_inworld.dot(wall_yaxis));
                 }
                 if(tempcounter>=30&&(dronetowall_pos_inworld.dot(wall_zaxis)>=-0.2&&dronetowall_vel_inworld.dot(wall_yaxis)>=-1.5))
 //                if(tempcounter>=30&&tempCurrentPz>=controlstatearray_msg.wall_z-0.15)
                 {
                     quad_state=4;
                     tempcounter=0;
-                    ROS_ERROR_STREAM("Success-tempCurrentPz:"<<tempCurrentPz<<" rendezvouswall_z: "<<controlstatearray_msg.rendezvouswall_z<<" vel_read.z: "<<vel_drone.twist.linear.z);                }
+                    ROS_ERROR_STREAM("Success-tempCurrentPz:"<<tempCurrentPz<<" rendezvouswall_z: "<<controlstatearray_msg.rendezvouswall_z<<" vel_read.z: "<<vel_drone.twist.linear.z);
+                }
                 orientation_target = euler2quaternion(-atan(controlstatearray_msg.stateAYarray[lefnodeindex]/(controlstatearray_msg.stateAZarray[lefnodeindex]+9.8)), 0, angle_target.z);
-                thrust_target  = param.THR_HOVER*cos(-atan(controlstatearray_msg.stateAYarray[lefnodeindex]/(controlstatearray_msg.stateAZarray[lefnodeindex]+9.8)))*cos(0);   //目标推力值 to alleviate the gravity's component along the drone's z axis
-                thrust_target  = max((double)thrust_target,param.THR_HOVER*0.5);   //目标推力值,只是用来保证提供扭矩，the drone is easy to fall freely and crash
-//                thrust_target=impedancecontrol();// this may make the attitude out of control when the thrust is too low and cause the collapse in test without wall
+
                 ROS_INFO_STREAM("Duringsuck_thrust_target: "<< thrust_target<<" roll:"<<-atan(controlstatearray_msg.stateAYarray[lefnodeindex]/(controlstatearray_msg.stateAZarray[lefnodeindex]+9.8))<<" pitch:"<<0<<" yaw:"<<angle_target.z);
                 break;
             case 3:
+                startattitudecotrolflag=false;
                 plane_expected_position.x=tempCurrentPx;
                 plane_expected_position.y=tempCurrentPy;
                 plane_expected_position.z=tempCurrentPz;
@@ -655,6 +887,7 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                 ROS_INFO_STREAM("Sucksuccess_thrust_target: "<< thrust_target<<" roll:"<<angle_target.x<<" pitch:"<<angle_target.y<<" yaw:"<<angle_target.z);
                 break;
             default:
+                startattitudecotrolflag=false;
                 break;
         }
 //        if(quad_state!=4&&quad_state!=2)

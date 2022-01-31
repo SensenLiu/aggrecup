@@ -198,7 +198,7 @@ message("------------------ " ${catkin_INCLUDE_DIRS})
 #
 add_executable(offb_posctl
         src/offb_posctl.cpp)
-target_link_libraries(offb_posctl ${catkin_LIBRARIES} thelib)
+target_link_libraries(offb_posctl ${catkin_LIBRARIES} thelib ${NLOPT_LIBRARIES})
 target_link_libraries(offb_posctl
         /home/sensenliu/catkin_ws/src/acado/lib/libacado_toolkit_s.so
         )
