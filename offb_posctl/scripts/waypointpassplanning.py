@@ -87,8 +87,8 @@ thrustmax=2*9.8
 angleaccdmax=25
 lbz=0.2
 ubz=2.5
-lbv=-5
-ubv=5
+lbv=-8
+ubv=8
 dyna_lbv=lbv
 dyna_ubv=ubv
 currentupdateflag = False
@@ -108,7 +108,7 @@ waypoint=[[0.505578,0.619863,3.097399,-0.033222,-0.007129,0.805617],
           [10,      1.4,     0.5726434,0.109907,aytf, aztf]]
 waypoint=array(waypoint)
 temp_waypoint=waypoint.copy()
-nearthreshold_y=0.5
+nearthreshold_y=0.2
 
 def getInitialtrajectory(waypoint,controlfreq):
     t=0.5
@@ -155,7 +155,7 @@ def getterminateStateTime(t):
             wallstateupdateflag=False
         wallindex=int(min(round((t+time.time()-lastwallupdatetime+1.0/60.0)*wallstate_msg.discrepointpersecond),wallstate_msg.arraylength-1))#add 1/60.0 is to compliment the latency when offboard node receive the ocplan message,
         # this is because the offb_posctl_vicon node loops in 30Hz, and the receive will latency a period, therefore we add 1/60 as the middle of 1/30 to make sure the max time error located in 1/60
-        # print(wallindex)
+        # print("wallindex",wallindex,"time.time()",time.time(),"lastwallupdatetime",lastwallupdatetime)
         if wallindex>=wallstate_msg.arraylength-1:
             t=wallstate_msg.arraylength/wallstate_msg.discrepointpersecond-(time.time()-lastwallupdatetime+1.0/60.0)
 
@@ -202,9 +202,10 @@ def ineqmycon(x):
     global y0,z0,vy0,vz0,ay0,az0, ytf,ztf,vytf,vztf,aytf,aztf, thrustmax, angleaccdmax, lbz, ubz, lbv, ubv
 
     ytf,ztf,vytf,vztf,aytf,aztf,t,tfnodenumber=getterminateStateTime(x)
-    print('time in---time out',x,t,y0,z0,vy0,vz0,ay0,az0, ytf,ztf,vytf,vztf,aytf,aztf)
-    if t<0:
+
+    if t<=0:
         return False
+    # rospy.loginfo_throttle(0.02,("time in---time out: ",x,t,y0,z0,vy0,vz0,ay0,az0, ytf,ztf,vytf,vztf,aytf,aztf))
     # t=1.01 # for debug
     # y0,z0,vy0,vz0,ay0,az0=[-0.019060520455241203, 0.44569042325019836, -0.03030611202120781, -0.028910841792821884, 0.00445199990645051, 0.001063051400706172]
     # ytf,ztf,vytf,vztf,aytf,aztf=[2.088410995891304, 0.6366621325246065, 3.532426002054348, 0.08544493373769671, 3.88221, -0.092808]
@@ -283,8 +284,11 @@ def ineqmycon(x):
 def getVirturaltarget(data):
     y_s,vy_s,z_s,vz_s,y_e,vy_e,z_e,vz_e,d=data[0],data[1],data[2],data[3],data[4],data[5],data[6],data[7],data[8]
     y_c,vy_c,z_c,vz_c,y_tf,vy_tf,z_tf,vz_tf=y0,vy0,z0,vz0,ytf_wall+delta_ytf,vytf_wall+delta_vytf,ztf_wall+delta_ztf,vztf_wall+delta_vztf
-    lmdy1,lmdy2,lmdy3,lmdy4=1,1,1,1 # lmd1 y_o-yc,lmd2 vy_o-vyc lmd3 y_o-ytf, lmd4 y_o-vytf
-    lmdz1,lmdz2,lmdz3,lmdz4=1,1,1,1
+    sigmod=1/(1+math.exp( -2.5*(d-4) ))
+    lmdy1,lmdy2,lmdy3,lmdy4=sigmod,sigmod,1-sigmod,1-sigmod # lmd1 y_o-yc,lmd2 vy_o-vyc lmd3 y_o-ytf, lmd4 y_o-vytf
+    lmdy1,lmdy2,lmdy3,lmdy4=0,0,1,1 # lmd1 y_o-yc,lmd2 vy_o-vyc lmd3 y_o-ytf, lmd4 y_o-vytf
+    lmdz1,lmdz2,lmdz3,lmdz4=lmdy1,lmdy2,lmdy3,lmdy4
+    # print("d, lmdy1,lmdy2,lmdy3,lmdy4 ",d,lmdy1,lmdy2,lmdy3,lmdy4)
     virtual_y=(lmdy1*lmdy2*y_c + lmdy1*lmdy4*y_c + lmdy1*lmdy2*y_e + lmdy1*lmdy4*y_e - lmdy1*lmdy2*y_s - lmdy1*lmdy4*y_s + lmdy2*lmdy3*y_tf +
                   lmdy3*lmdy4*y_tf + d*lmdy1*lmdy2*vy_c - d*lmdy1*lmdy4*vy_e - d*lmdy1*lmdy2*vy_s + d*lmdy1*lmdy4*vy_tf + d**2*lmdy1*lmdy3*y_tf)/\
                  (lmdy1*lmdy3*d**2 + lmdy1*lmdy2 + lmdy1*lmdy4 + lmdy2*lmdy3 + lmdy3*lmdy4)
@@ -360,19 +364,23 @@ def main():
     planstoptime=0.2
     solvetimeout=0.02
     Init_guess,increaseratio=0.1,1.5
-    searchstep,leftnode,rightnode,tfnodenumber,solveflag=1, 0.1, 5,0,False
+    searchstep,leftnode,rightnode,lastftnodenumber,tfnodenumber,firstsolveflag, solveflag=1, 0.1, 5,0,0,False,False
     rospy.loginfo_throttle(0.02,("Terminate state, ytf,vytf,aytf,ztf,vztf,aztf : %.2f  %.2f %.2f %.2f %.2f %.2f",ytf,vytf,aytf,ztf,vztf,aztf))
+
 
     Initialtrajectory,Timetemplate=getInitialtrajectory(waypoint,controlfreq)
     Dynamictrajectory=Initialtrajectory
     Employedtrajectory=Dynamictrajectory
+    interceptindex=0
+    residualduration=0
     # while not((rospy.is_shutdown())): ## test the runtime of the core function
     #     startsolvetime=time.time()
     #     ineqmycon(10)
     #     running_time = time.time() - startsolvetime
     #     print(running_time)
 
-    while not((rospy.is_shutdown())) and wallstateupdateflag:
+    # while not((rospy.is_shutdown())) and wallstateupdateflag:
+    while not((rospy.is_shutdown())) :
         if wallstateupdateflag:
             if math.fabs(wallstate_msg.stateVYarray[0])>0.1:
                 break
@@ -394,8 +402,8 @@ def main():
             rate.sleep()
 
     while not (rospy.is_shutdown()):
-        # if currentupdateflag and wallstateupdateflag:
-        if currentupdateflag:
+        if currentupdateflag and wallstateupdateflag:
+        # if currentupdateflag:
             Init_guess=leftnode*0.5
             leftnode=Init_guess
             rightnode=min(rightnode*increaseratio,5)
@@ -405,7 +413,6 @@ def main():
 
             while rightnode-leftnode>0.2 or solveflag==False:
                 solveflag=ineqmycon(leftnode)
-                # print("solveflag,leftnode",solveflag,leftnode)
                 if solveflag==True:
                     rightnode=leftnode
                     leftnode=max(rightnode-searchstep,Init_guess)
@@ -439,7 +446,7 @@ def main():
                     #       't:%.2f' % t, 'tfnodenumber %.1f' % tfnodenumber)
                     rospy.loginfo_throttle(0.02,('timeout solve-Init_guess %.2f' % Init_guess,  'y0:%.2f' % y0, 'z0:%.2f' % z0,
                      'ytf:%.2f' % ytf,  'ztf:%.2f' % ztf, 'vyft: %.2f' % vytf, 'rightnode %.2f' % rightnode, 't:%.2f' % t, 'tfnodenumber %d' % tfnodenumber))
-                    rightnode=rightnode/increaseratio # to avoid rightnode increase by multiply 1.5 many times in rightnode=rightnode*1.5
+                    # rightnode=rightnode/increaseratio # to avoid rightnode increase by multiply 1.5 many times in rightnode=rightnode*1.5
                     leftnode=0.1
                     break
 
@@ -455,20 +462,29 @@ def main():
                 # terminal condition represented by global arguments in ineqmycon() fucntion
                 # print('controlstate_msg.inicounter/controlfreq : %.5f sec' % (controlstate_msg.inicounter/controlfreq))
                 segmenttime=t+(controlstate_msg.inicounter/controlfreq)# recovery t to the duration corresponding planning start state
+                if(firstsolveflag==False):
+                    lastftnodenumbe=tfnodenumber
+                    firstsolveflag=True
+
                 rospy.loginfo_throttle(0.02,('solved-computercost : %.5f' % running_time, 'segmenttime : %.2f' % segmenttime, 'tfnodenumber %d' % tfnodenumber,
                 'residualduration %.2f' % residualduration,'y0: %.3f' % y0,'ytf: %.3f' % ytf, 'ztf : %.2f' % ztf,'vyft: %.2f' % vytf))
             else:
-                residualduration=max(lastsolveduration-(time.time()-lastsolved_time)-(controlstate_msg.inicounter/controlfreq),0)
-                if(residualduration>planstoptime):
-                    ytf,ztf,vytf,vztf,aytf,aztf,t,tfnodenumber=getterminateStateTime(residualduration)
-                    if t>0:
-                        segmenttime=t+(controlstate_msg.inicounter/controlfreq)# recovery t to the duration corresponding planning start state
-                        leftnode,rightnode=residualduration,residualduration ## for next solve
-                        rospy.loginfo_throttle(0.02,('supple-computercost : %.5f' % running_time, 'segmenttime : %.2f' % segmenttime, 'tfnodenumber %d' % tfnodenumber,
-                        'residualduration %.2f' % residualduration,'y0: %.3f' % y0,'ytf: %.3f' % ytf, 'ztf : %.2f' % ztf,'vyft: %.2f' % vytf))
-            if(residualduration<=0.8 and residualduration>0):
+                # residualduration=max(lastsolveduration-(time.time()-lastsolved_time)-(controlstate_msg.inicounter/controlfreq),0)
+                if lastsolveduration>0:# this condition is to avoid the supplement start before first successful solution
+                    residualduration=(Employedtrajectory.shape[1]-interceptindex-controlstate_msg.inicounter-1)/controlfreq
+                    if(residualduration>planstoptime):
+                        ytf,ztf,vytf,vztf,aytf,aztf,t,tfnodenumber=getterminateStateTime(residualduration)
+                        if t>0:
+                            segmenttime=t+(controlstate_msg.inicounter/controlfreq)# recovery t to the duration corresponding planning start state
+                            leftnode,rightnode=residualduration,residualduration ## for next solve
+                            rospy.loginfo_throttle(0.02,('supple-computercost : %.5f' % running_time, 'segmenttime : %.2f' % segmenttime, 'tfnodenumber %d' % tfnodenumber,
+                            'residualduration %.2f' % residualduration,'y0: %.3f' % y0,'ytf: %.3f' % ytf, 'ztf : %.2f' % ztf,'vyft: %.2f' % vytf,'increaseratio: %.2f' % increaseratio))
+            if(firstsolveflag and lastftnodenumbe>=tfnodenumber):
+                # if(segmenttime<1.0):
+                increaseratio=1.0 ## test
+            else:
                 increaseratio=1.5 ## test
-
+            # lastftnodenumbe=tfnodenumber
             if residualduration>planstoptime:
                 t=segmenttime
                 if solveflag: ## solved success
@@ -494,7 +510,6 @@ def main():
                         controlstate_msg.predictstartwall_vx=wallstate_msg.stateVXarray[0]
                         controlstate_msg.predictstartwall_vy=wallstate_msg.stateVYarray[0]
                         controlstate_msg.predictstartwall_vz=wallstate_msg.stateVZarray[0]
-                        # print("wallstate_msg.header.stamp---: ",wallstate_msg.header.stamp.secs+wallstate_msg.header.stamp.nsecs/1e9)
                         # print('wallstate_msg.currentwall_y : %.5f sec' % wallstate_msg.currentwall_y,'wallstate_msg.stateYarray[0] : %.5f sec' % wallstate_msg.stateYarray[0])
                     else:
                         controlstate_msg.currentwall_x=xtf_wall
@@ -536,7 +551,7 @@ def main():
                     vz=alpha_z/24*times**4+beta_z/6*times**3+gamma_z/2*times**2+az0*times+vz0
                     az=alpha_z/6*times**3+beta_z/2*times**2+gamma_z*times+az0
                     Employedtrajectory=hstack(( np.vstack((y[0:-1],vy[0:-1],ay[0:-1],z[0:-1],vz[0:-1],az[0:-1])), Dynamictrajectory[:,int(controlstate_msg.tfnodenumber*15):]))
-
+                    interceptindex=0
                     controlstate_msg.stateXarray = full_like(times,controlstate_msg.rendezvouswall_x)
                     controlstate_msg.stateYarray = y
                     controlstate_msg.stateZarray = z
@@ -593,11 +608,12 @@ def main():
                     controlstate_msg.rendezvouswall_vy=vytf_wall
                     controlstate_msg.rendezvouswall_vz=vztf_wall
                     controlstate_msg.parabolictime=parabolictime
-                    interceptindex=min(int(round((time.time()-lastsolved_time)*controlfreq)),Employedtrajectory.shape[1])
-                    endindex=Employedtrajectory.shape[1]-(waypoint.shape[0]-1-controlstate_msg.tfnodenumber)*15
-                    if(endindex<=interceptindex):
-                        print("~~~~~endindex<interceptindex~~~~")
-                        continue
+                    # interceptindex=min(int(round((time.time()-lastsolved_time)*controlfreq)),Employedtrajectory.shape[1])
+                    endindex=max(Employedtrajectory.shape[1]-(waypoint.shape[0]-1-controlstate_msg.tfnodenumber)*15,5) # avoid the situation endindex <interceptinedex when tfnodenumber decrease
+                    interceptindex=min(interceptindex+1,endindex-5)
+                    # if(endindex-5<=interceptindex):
+                    #     print("~~~~~endindex<interceptindex~~~~")
+                    #     continue
 
                     E_time=(Employedtrajectory.shape[1]-1)/controlstate_msg.discrepointpersecond
                     E_Timetemplate=np.vstack(( linspace(-E_time,0,Employedtrajectory.shape[1]), np.ones((1,Employedtrajectory.shape[1])), np.zeros((1,Employedtrajectory.shape[1])),
@@ -610,7 +626,8 @@ def main():
 
 
                     controlstate_msg.arraylength=endindex-interceptindex
-                    # interceptindex=int(max(min(lastarraylength-round(t*controlfreq)-1,lastarraylength-1),0))
+                    # if Employedtrajectory[0,interceptindex]<0:
+                    #     print("---fault emerge--interceptindex,endindex, Employedtrajectory[0,interceptindex]",interceptindex, endindex, Employedtrajectory[0,interceptindex])
 
                     controlstate_msg.stateXarray = full_like(Employedtrajectory[0,interceptindex:endindex],controlstate_msg.rendezvouswall_x)
                     controlstate_msg.stateYarray = Employedtrajectory[0,interceptindex:endindex]
@@ -623,10 +640,8 @@ def main():
                     controlstate_msg.stateAZarray = Employedtrajectory[5,interceptindex:endindex]
                     # print("controlstate_msg.stateYarray[end]-------", controlstate_msg.stateYarray[-3:],"controlstate_msg.stateVYarray[end]-------", controlstate_msg.stateVYarray[-3:], 'interceptindex ',interceptindex, 'endindex ',endindex)
                     # print('controlstate_msg.stateYarray ', controlstate_msg.stateYarray[0:],' y',Employedtrajectory[0,:],'  vy',Employedtrajectory[1,:])
-                if controlstate_msg.stateYarray[0]==0 and controlstate_msg.stateZarray[0]==0:
-                    print("--------residualduration-------", residualduration,"---controlstate_msg.arraylength--","controlstate_msg.arraylength")
                 control_pub.publish(controlstate_msg)
-                # print (y[-1],z[-1])
+                # print ("end waypoint",temp_waypoint[-1,0],"wallstate_msg_end",wallstate_msg.stateYarray[-1])
 
                 planned_path.header.stamp=rospy.Time.now()
                 planned_path.header.frame_id="ground_link"

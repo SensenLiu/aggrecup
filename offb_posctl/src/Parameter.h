@@ -11,6 +11,7 @@ class Parameter {
 public:
 
     float THR_HOVER;
+    bool Enable_log_to_file;
 
     float pos_x;
     float pos_y;

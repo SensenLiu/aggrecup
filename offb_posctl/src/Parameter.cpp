@@ -37,6 +37,11 @@ bool Parameter::readParam(const char *addr) {
         {
             THR_HOVER=value[0];
         }
+        if(name == "Enablelog")
+        {
+            Enable_log_to_file=value[0];
+        }
+
         if (name == "POS")
         {
             pos_x = value[0];

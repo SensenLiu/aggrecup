@@ -114,7 +114,9 @@ bool motionprediction()
     }
     coeff_matrix=time_matrix.bdcSvd(ComputeThinU|ComputeThinV).solve(output_matrix);
 //    cout<<"coeff_matrix: "<<coeff_matrix<<endl;
-    wallstate_msg.header.stamp=ros::Time::now();
+//    wallstate_msg.header.stamp=ros::Time::now();
+    wallstate_msg.header.stamp.sec=ros::WallTime::now().sec;
+    wallstate_msg.header.stamp.nsec=ros::WallTime::now().nsec;// WallTime is consistent with system when using simulation
     wallstate_msg.arraylength=prediction_length;
     wallstate_msg.discrepointpersecond=(int)predict_freq;
     wallstate_msg.stateXarray.clear();
@@ -123,6 +125,7 @@ bool motionprediction()
     wallstate_msg.stateVXarray.clear();
     wallstate_msg.stateVYarray.clear();
     wallstate_msg.stateVZarray.clear();
+//    cout<<wallstate_msg.header.stamp.sec<<"==="<<wallstate_msg.header.stamp.toSec()<<endl;
 
     predictedwallpath_msg.poses.clear();
 
@@ -169,6 +172,12 @@ int main(int argc,char ** argv)
         {
             if(motionprediction())
             {
+                wallstate_msg.currentwall_x=current_wallstate.pose.pose.position.x;
+                wallstate_msg.currentwall_y=current_wallstate.pose.pose.position.y;
+                wallstate_msg.currentwall_z=current_wallstate.pose.pose.position.z;
+                wallstate_msg.currentwall_vx=current_wallstate.twist.twist.linear.x;
+                wallstate_msg.currentwall_vy=current_wallstate.twist.twist.linear.y;
+                wallstate_msg.currentwall_vz=current_wallstate.twist.twist.linear.z;
                 predictionarray_pub.publish(wallstate_msg);
                 predictionpath_pub.publish(predictedwallpath_msg);
             }

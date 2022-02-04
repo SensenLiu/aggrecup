@@ -190,7 +190,9 @@ add_library(thelib
         src/PID.h
         src/PID.cpp
         src/FILTER.h
-        src/FILTER.cpp)
+        src/FILTER.cpp
+        src/DOB.cpp
+        src/DOB.h)
 #
 message("------------------ " ${catkin_INCLUDE_DIRS})
 #

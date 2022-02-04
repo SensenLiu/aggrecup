@@ -78,7 +78,8 @@ lastdroneupdatetime=0.0
 lastsolved_time=0.0
 lastsolveduration=0.0
 
-
+y0,z0,vy0,vz0,ay0,az0=[8.119218826293945, 1.5682785511016846, 5.646708965301514, 0.9292353391647339, 6.371948719024658, -5.756661415100098]
+ytf,ztf,vytf,vztf,aytf,aztf=[10.867484919410352, 1.2385329108834278, 6.950641729776516, -0.15108810566812603, 0.514369, 0.832596]
 print("Terminate state, ytf,vytf,aytf,ztf,vztf,aztf",ytf,vytf,aytf,ztf,vztf,aztf)
 
 def ineqmycon(x):
@@ -169,13 +170,12 @@ def main():
     running_time = end - start0
     print('time cost : %.5f sec' % running_time)
     print(Initial_guess[0], ineqmycon(Initial_guess))
-    Initial_guess[0]=0.32
-
+    Initial_guess[0]=0.4
     times=np.linspace(0,1,round(Initial_guess[0]*controlfreq))*Initial_guess
 
     t=Initial_guess[0]
-    y0,z0,vy0,vz0,ay0,az0=[0.9964441657066345, 1.1313401460647583, 4.3546142578125, 0.7766915559768677, 5.313570499420166, 1.1627477407455444]
-    ytf,ztf,vytf,vztf,aytf,aztf=[2.1021140633409194, 0.9959506077627565, 4.159587002054348, 1.0294599337376968, -3.553221, 1.194]
+    y0,z0,vy0,vz0,ay0,az0=[8.119218826293945, 1.5682785511016846, 5.646708965301514, 0.9292353391647339, 6.371948719024658, -5.756661415100098]
+    ytf,ztf,vytf,vztf,aytf,aztf=[10.867484919410352, 1.2385329108834278, 6.950641729776516, -0.15108810566812603, 0.514369, 0.832596]
     tarray=np.array([[60/t**3,-360/t**4,720/t**5],[-24/t**2,168/t**3,-360/t**4],[3/t,-24/t**2,60/t**3]])
 
     tarray=np.array([[60/t**3,-360/t**4,720/t**5],[-24/t**2,168/t**3,-360/t**4],[3/t,-24/t**2,60/t**3]])
