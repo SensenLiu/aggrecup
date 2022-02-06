@@ -37,7 +37,7 @@ phi=1.22
 normspeed=-0.5
 tangentialspeed=0.3
 xtf_wall=0.0
-ytf_wall=3.5
+ytf_wall=5.0
 ztf_wall=1.40 # true is 1.94
 vxtf_wall=0.0
 vytf_wall=0.0
@@ -100,12 +100,19 @@ lastwallupdatetime=0.0
 lastsolved_time=0.0
 lastsolveduration=0.0
 
-waypoint=[[0.505578,0.619863,3.097399,-0.033222,-0.007129,0.805617],
-          [2.088411,0.636662,3.532426,0.085445,3.882210,-0.092808],
-          [4.166977,0.593732,4.446313,-0.154658,0.514369,0.832596],
-          [6.406481,0.618986,4.573474,0.337406,1.566063,1.382526],
+#for 5 segment
+# waypoint=[[0.505578,0.619863,3.097399,-0.033222,-0.007129,0.805617],
+#           [2.088411,0.636662,3.532426,0.085445,3.882210,-0.092808],
+#           [4.166977,0.593732,4.446313,-0.154658,0.514369,0.832596],
+#           [6.406481,0.618986,4.573474,0.337406,1.566063,1.382526],
+#           [8.696024,0.961586,4.159587,1.029460,-3.553221,1.19400],
+#           [10,      1.4,     0.5726434,0.109907,aytf, aztf]]
+
+#for 2 segment
+waypoint=[[6.406481,0.618986,4.573474,0.337406,1.566063,1.382526],
           [8.696024,0.961586,4.159587,1.029460,-3.553221,1.19400],
           [10,      1.4,     0.5726434,0.109907,aytf, aztf]]
+
 waypoint=array(waypoint)
 temp_waypoint=waypoint.copy()
 nearthreshold_y=0.2
@@ -166,9 +173,12 @@ def getterminateStateTime(t):
         ztf_wall=wallstate_msg.stateZarray[wallindex]
         vztf_wall=wallstate_msg.stateVZarray[wallindex]
 
+    #for 5 segment
+    # temp_waypoint[:,0]=ytf_wall+delta_ytf-waypoint[-1,0]+waypoint[:,0]-(vytf_wall+delta_vytf-waypoint[-1,2])*linspace(2.5,0,6)
+    # temp_waypoint[:,1]=ztf_wall+delta_ztf-waypoint[-1,1]+waypoint[:,1]-(vztf_wall+delta_vztf-waypoint[-1,3])*linspace(2.5,0,6)
 
-    temp_waypoint[:,0]=ytf_wall+delta_ytf-waypoint[-1,0]+waypoint[:,0]-(vytf_wall+delta_vytf-waypoint[-1,2])*linspace(2.5,0,6)
-    temp_waypoint[:,1]=ztf_wall+delta_ztf-waypoint[-1,1]+waypoint[:,1]-(vztf_wall+delta_vztf-waypoint[-1,3])*linspace(2.5,0,6)
+    temp_waypoint[:,0]=ytf_wall+delta_ytf-waypoint[-1,0]+waypoint[:,0]-(vytf_wall+delta_vytf-waypoint[-1,2])*linspace((waypoint.shape[0]-1)*0.5,0,waypoint.shape[0])
+    temp_waypoint[:,1]=ztf_wall+delta_ztf-waypoint[-1,1]+waypoint[:,1]-(vztf_wall+delta_vztf-waypoint[-1,3])*linspace((waypoint.shape[0]-1)*0.5,0,waypoint.shape[0])
     temp_waypoint[:,2]=(vytf_wall+delta_vytf-waypoint[-1,2])+waypoint[:,2]
     temp_waypoint[:,3]=(vztf_wall+delta_vztf-waypoint[-1,3])+waypoint[:,3]
     dyna_lbv=lbv+(vytf_wall+delta_vytf-waypoint[-1,2])
@@ -284,7 +294,10 @@ def ineqmycon(x):
 def getVirturaltarget(data):
     y_s,vy_s,z_s,vz_s,y_e,vy_e,z_e,vz_e,d=data[0],data[1],data[2],data[3],data[4],data[5],data[6],data[7],data[8]
     y_c,vy_c,z_c,vz_c,y_tf,vy_tf,z_tf,vz_tf=y0,vy0,z0,vz0,ytf_wall+delta_ytf,vytf_wall+delta_vytf,ztf_wall+delta_ztf,vztf_wall+delta_vztf
-    sigmod=1/(1+math.exp( -2.5*(d-4) ))
+    #for 5 segment
+    # sigmod=1/(1+math.exp( -2.5*(d-4) ))
+    #for 2 segment
+    sigmod=1/(1+math.exp( -5*(d-2) ))
     lmdy1,lmdy2,lmdy3,lmdy4=sigmod,sigmod,1-sigmod,1-sigmod # lmd1 y_o-yc,lmd2 vy_o-vyc lmd3 y_o-ytf, lmd4 y_o-vytf
     lmdy1,lmdy2,lmdy3,lmdy4=0,0,1,1 # lmd1 y_o-yc,lmd2 vy_o-vyc lmd3 y_o-ytf, lmd4 y_o-vytf
     lmdz1,lmdz2,lmdz3,lmdz4=lmdy1,lmdy2,lmdy3,lmdy4
@@ -361,7 +374,7 @@ def main():
     ytf, vytf,aytf,ztf,vztf,aztf=0,0,0,0,0,0
     y,vy,ay,z,vz,az,lastarraylength=0,0,0,0,0,0,0
     controlfreq=30
-    planstoptime=0.2
+    planstoptime=0.3
     solvetimeout=0.02
     Init_guess,increaseratio=0.1,1.5
     searchstep,leftnode,rightnode,lastftnodenumber,tfnodenumber,firstsolveflag, solveflag=1, 0.1, 5,0,0,False,False
@@ -379,6 +392,18 @@ def main():
     #     running_time = time.time() - startsolvetime
     #     print(running_time)
 
+    print("phi,cuplength~~~~~",phi,cuplength)
+    for j in range(0,10):## display the waypoint. The "History Length" should be not less than 5 in rivz pointstameped property configurateion
+        for i in range(0, waypoint.shape[0]):
+            waypoints.header.stamp=rospy.Time.now()
+            waypoints.header.frame_id="ground_link"
+            waypoints.point.x=0
+            waypoints.point.y=waypoint[i,0]
+            waypoints.point.z=waypoint[i,1]
+            # print(waypoints.point.y)
+            point_pub.publish(waypoints)
+            rate.sleep()
+
     # while not((rospy.is_shutdown())) and wallstateupdateflag:
     while not((rospy.is_shutdown())) :
         if wallstateupdateflag:
@@ -389,17 +414,6 @@ def main():
             rospy.loginfo_throttle(0.02,wallstate_msg.stateVYarray[0])
         rate.sleep()
 
-    print("phi,cuplength~~~~~",phi,cuplength)
-    for j in range(0,10):## display the waypoint. The "History Length" should be not less than 5 in rivz pointstameped property configurateion
-        for i in range(0, 6):
-            waypoints.header.stamp=rospy.Time.now()
-            waypoints.header.frame_id="ground_link"
-            waypoints.point.x=0
-            waypoints.point.y=waypoint[i,0]
-            waypoints.point.z=waypoint[i,1]
-            # print(waypoints.point.y)
-            point_pub.publish(waypoints)
-            rate.sleep()
 
     while not (rospy.is_shutdown()):
         if currentupdateflag and wallstateupdateflag:
@@ -665,7 +679,7 @@ def main():
         recv_acc.header.stamp=rospy.Time.now()
         acc_pub.publish(recv_acc)
 
-        for i in range(0, 6):
+        for i in range(0, temp_waypoint.shape[0]):
             waypoints.header.stamp=rospy.Time.now()
             waypoints.header.frame_id="ground_link"
             waypoints.point.x=0
