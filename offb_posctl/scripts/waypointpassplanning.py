@@ -108,10 +108,17 @@ lastsolveduration=0.0
 #           [8.696024,0.961586,4.159587,1.029460,-3.553221,1.19400],
 #           [10,      1.4,     0.5726434,0.109907,aytf, aztf]]
 
-#for 2 segment
-waypoint=[[6.406481,0.618986,4.573474,0.337406,1.566063,1.382526],
-          [8.696024,0.961586,4.159587,1.029460,-3.553221,1.19400],
+#for 4 segment
+waypoint=[[4.574112,0.439609,2.027572,-0.457933,0.967727,0.226773],
+          [5.737729,0.264307,2.626901,-0.170149,1.418068,1.007856],
+          [7.23104, 0.349579,3.287509,0.617794,1.091659,2.248575],
+          [8.907672,0.883532,3.171697,1.387315,-1.849185,0.452807],
           [10,      1.4,     0.5726434,0.109907,aytf, aztf]]
+
+#for 2 segment
+# waypoint=[[6.406481,0.618986,4.573474,0.337406,1.566063,1.382526],
+#           [8.696024,0.961586,4.159587,1.029460,-3.553221,1.19400],
+#           [10,      1.4,     0.5726434,0.109907,aytf, aztf]]
 
 waypoint=array(waypoint)
 temp_waypoint=waypoint.copy()
@@ -233,15 +240,26 @@ def ineqmycon(x):
         return False
 
     ##to judge the curve is located on the identical side of the straight line (y0,z0)--(ytf,ztf)
-    c2_2=(y-y0)*(ytf-y0)+(z-z0)*(ztf-z0)
-    dotnormal=sqrt(((y-y0)**2+(z-z0)**2)*((ztf-z0)**2+(ytf-y0)**2))
-    # c2_2=np.delete(c2_2,np.where(dotnormal==0))
-    # dotnormal=np.delete(dotnormal,np.where(dotnormal==0))
-    c2_3=c2_2/dotnormal
-    c2_3=np.delete(c2_3,np.where(c2_3>1))
-    c2_3=np.delete(c2_3,np.where(c2_3<-1))
-    # print("c2_3",c2_3)
-    c2_3=diff(arccos(c2_3)*180/pi)
+    # c2_2=(y-y0)*(ytf-y0)+(z-z0)*(ztf-z0)
+    # dotnormal=sqrt(((y-y0)**2+(z-z0)**2)*((ztf-z0)**2+(ytf-y0)**2))
+    # # c2_2=np.delete(c2_2,np.where(dotnormal==0))
+    # # dotnormal=np.delete(dotnormal,np.where(dotnormal==0))
+    # c2_3=c2_2/dotnormal
+    # c2_3=np.delete(c2_3,np.where(c2_3>1))
+    # c2_3=np.delete(c2_3,np.where(c2_3<-1))
+    # c2_3=diff(arccos(c2_3)*180/pi)
+
+    c2_1=diff(y)*(ztf-z0)-diff(z)*(ytf-y0)
+    c2_1=np.int64(c2_1>=0)-np.int64(c2_1<0)
+
+    c2_2=diff(y)*(ytf-y0)+diff(z)*(ztf-z0)
+    c2_2=c2_2/sqrt(((diff(y))**2+diff(z)**2)*((ztf-z0)**2+(ytf-y0)**2))
+    c2_2=np.clip(c2_2,-1,1)
+    c2_3=abs(diff(arccos(c2_2)*c2_1))
+
+    c2_1=abs(diff(c2_1))
+    c2_3=c2_3[c2_1==2]
+
     if(sum(c2_3>0.05)>0):# the first one or three points at the begnining usually are outliers and it can be accepted
         return False
 
@@ -295,9 +313,9 @@ def getVirturaltarget(data):
     y_s,vy_s,z_s,vz_s,y_e,vy_e,z_e,vz_e,d=data[0],data[1],data[2],data[3],data[4],data[5],data[6],data[7],data[8]
     y_c,vy_c,z_c,vz_c,y_tf,vy_tf,z_tf,vz_tf=y0,vy0,z0,vz0,ytf_wall+delta_ytf,vytf_wall+delta_vytf,ztf_wall+delta_ztf,vztf_wall+delta_vztf
     #for 5 segment
-    # sigmod=1/(1+math.exp( -2.5*(d-4) ))
+    sigmod=1/(1+math.exp( -2.5*(d-4) ))
     #for 2 segment
-    sigmod=1/(1+math.exp( -5*(d-2) ))
+    # sigmod=1/(1+math.exp( -5*(d-2) ))
     lmdy1,lmdy2,lmdy3,lmdy4=sigmod,sigmod,1-sigmod,1-sigmod # lmd1 y_o-yc,lmd2 vy_o-vyc lmd3 y_o-ytf, lmd4 y_o-vytf
     lmdy1,lmdy2,lmdy3,lmdy4=0,0,1,1 # lmd1 y_o-yc,lmd2 vy_o-vyc lmd3 y_o-ytf, lmd4 y_o-vytf
     lmdz1,lmdz2,lmdz3,lmdz4=lmdy1,lmdy2,lmdy3,lmdy4

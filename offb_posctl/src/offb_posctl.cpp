@@ -826,12 +826,12 @@ int main(int argc, char **argv)//argc  argument count 传参个数，argument va
                         plane_expected_acceleration.z=controlstatearray_msg.stateAZarray[controlstatearray_msg.stateXarray.size()-1];
                     }
                     controlcounter++;
-                    if((controlstatearray_msg.arraylength-controlcounter)<0.3*controlstatearray_msg.discrepointpersecond && controlstatearray_msg.tfnodenumber==2)
+                    if((controlstatearray_msg.arraylength-controlcounter)<0.3*controlstatearray_msg.discrepointpersecond && controlstatearray_msg.tfnodenumber==4)
                     {
                         startattitudecotrolflag=true;
                         ROS_ERROR_STREAM("startattitudecotrolflag:"<<startattitudecotrolflag<<" plane_expected_position.y:"<<plane_expected_position.y<<" plane_expected_position.z: "<<plane_expected_position.z<<" current y: "<<pose_drone_odom.pose.pose.position.y<<" current z: "<<pose_drone_odom.pose.pose.position.z<<" planned roll:"<<angle_target.x<<" current roll:"<<angle_receive.x);
                     }
-                    if(controlcounter>=controlstatearray_msg.arraylength && controlstatearray_msg.tfnodenumber==2)
+                    if(controlcounter>=controlstatearray_msg.arraylength && controlstatearray_msg.tfnodenumber==4)
                     {
                         ROS_ERROR_STREAM( "end_state2---plane_expected_position.y:"<<plane_expected_position.y<<" plane_expected_position.z:"<<plane_expected_position.z<<" current y: "<<pose_drone_odom.pose.pose.position.y<<" current z: "<<pose_drone_odom.pose.pose.position.z<<" planned roll: "<<-atan(controlstatearray_msg.stateAYarray[lefnodeindex]/(controlstatearray_msg.stateAZarray[lefnodeindex]+9.8))<<" controlstatearray_msg.tfnodenumber: "<<controlstatearray_msg.tfnodenumber
                         <<" controlstatearray_msg.arraylength: "<<controlstatearray_msg.arraylength);
